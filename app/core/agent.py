@@ -1,5 +1,6 @@
 import time
 import os
+import re
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from google import genai
@@ -7,7 +8,7 @@ from google.genai import types
 
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
-from app.core.tools import launch_target, search_web, play_youtube, get_system_stats
+from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
 
@@ -28,7 +29,14 @@ VOCALIS_PERSONA = (
     "You are intelligent, concise, highly capable, and sleek in tone. "
     "Address the user politely (or as Sir/Ma'am if appropriate). "
     "Keep voice responses natural and crisp (2-3 sentences max). "
-    "When a user asks about what is on their screen or camera, analyze the provided visual frame in detail."
+    "When a user asks about what is on their screen or camera, analyze the provided visual frame in detail. "
+    "You can execute GUI actions to click, type, press hotkeys, or scroll based on visual grounding. "
+    "If you need to perform an action on the screen, append a special tag at the very end of your response: "
+    "For clicking: '[GUI_ACTION: click, x, y]' (estimate absolute pixel coordinates based on standard 1920x1080 display). "
+    "For typing text: '[GUI_ACTION: type, text_to_type]'. "
+    "For key combinations: '[GUI_ACTION: hotkey, key1, key2]'. "
+    "For scrolling: '[GUI_ACTION: scroll, amount]' (positive for up, negative for down). "
+    "Only output ONE action per turn."
 )
 
 _client = None
@@ -154,6 +162,33 @@ async def process_turn(
         
         reply_text = response.text or "I processed your request."
         confidence = 0.96
+
+        # Parse GUI actions from response
+        action_match = re.search(r'\[GUI_ACTION:\s*([^\]]+)\]', reply_text)
+        if action_match and allow_actions:
+            action_parts = [p.strip() for p in action_match.group(1).split(",")]
+            if action_parts:
+                action_type = action_parts[0]
+                if action_type == "click" and len(action_parts) >= 3:
+                    try:
+                        x = int(action_parts[1])
+                        y = int(action_parts[2])
+                        res = execute_gui_action("click", x=x, y=y)
+                        actions_executed.append(res)
+                    except ValueError:
+                        pass
+                elif action_type == "type" and len(action_parts) >= 2:
+                    text_val = action_parts[1]
+                    res = execute_gui_action("type", text=text_val)
+                    actions_executed.append(res)
+                elif action_type == "hotkey" and len(action_parts) >= 2:
+                    keys = action_parts[1:]
+                    res = execute_gui_action("hotkey", keys=keys)
+                    actions_executed.append(res)
+                elif action_type == "scroll" and len(action_parts) >= 2:
+                    amt = action_parts[1]
+                    res = execute_gui_action("scroll", text=amt)
+                    actions_executed.append(res)
 
     except Exception as e:
         reply_text = f"An issue occurred while consulting the intelligence engine: {str(e)}"

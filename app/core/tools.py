@@ -214,3 +214,40 @@ def get_system_stats() -> dict:
         "battery": psutil.sensors_battery().percent if hasattr(psutil, "sensors_battery") and psutil.sensors_battery() else None,
         "timestamp": time.time()
     }
+
+# --- GUI AUTOMATION & ACTION ENGINE ---
+import pyautogui
+pyautogui.FAILSAFE = True
+
+def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str = None, keys: list[str] = None) -> dict:
+    """
+    Executes a GUI action: click, type, hotkey, or scroll.
+    x and y coordinates are target desktop coordinates.
+    """
+    try:
+        width, height = pyautogui.size()
+        
+        if action_type == "click" and x is not None and y is not None:
+            target_x = max(0, min(width - 1, x))
+            target_y = max(0, min(height - 1, y))
+            pyautogui.moveTo(target_x, target_y, duration=0.4)
+            pyautogui.click()
+            return {"status": "success", "action": "click", "x": target_x, "y": target_y}
+            
+        elif action_type == "type" and text is not None:
+            pyautogui.write(text, interval=0.03)
+            return {"status": "success", "action": "type", "text": text}
+            
+        elif action_type == "hotkey" and keys is not None:
+            pyautogui.hotkey(*keys)
+            return {"status": "success", "action": "hotkey", "keys": keys}
+            
+        elif action_type == "scroll":
+            amount = int(text) if text and text.isdigit() else 300
+            pyautogui.scroll(amount)
+            return {"status": "success", "action": "scroll", "amount": amount}
+            
+        return {"status": "error", "message": f"Invalid action parameters: {action_type}"}
+    except Exception as e:
+        return {"status": "error", "message": f"GUI execution failed: {str(e)}"}
+
