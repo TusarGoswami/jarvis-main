@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import logging
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 
 from app.config import settings
@@ -10,6 +11,9 @@ from app.core.verifier import verify_step_outcome, VerificationResult
 from app.core.tools_registry import execute_tool, get_tools_prompt_description
 from app.core.guardrails import evaluate_guardrails
 from app.core.llm_provider import generate_multimodal_content
+from app.core.sanitizer import sanitize_text
+
+logger = logging.getLogger("vocalis.orchestrator")
 
 class OrchestratorResult:
     def __init__(
@@ -259,6 +263,10 @@ async def run_react_loop(
             await on_step_update(step_record)
 
         # 5. ACT: Execute Tool
+        logger.info(
+            f"[ACT] Task {task.task_id} Step {current_step_num}: Executing tool '{action_name}'",
+            extra={"task_id": task.task_id, "step": current_step_num, "phase": "act"}
+        )
         task_manager.update_state(task.task_id, TaskState.EXECUTING)
         if allow_actions:
             tool_res = await execute_tool(action_name, action_args)
@@ -276,6 +284,10 @@ async def run_react_loop(
         )
         step.observation = observation
         step_record["observation"] = tool_res
+        logger.info(
+            f"[OBSERVE] Task {task.task_id} Step {current_step_num} observed state",
+            extra={"task_id": task.task_id, "step": current_step_num, "phase": "observe"}
+        )
 
         # 7. VERIFY: Compare Expected vs Actual Outcome
         task_manager.update_state(task.task_id, TaskState.VERIFYING)
@@ -285,6 +297,10 @@ async def run_react_loop(
 
         if verification.success:
             # Verification Passed -> Advance to next step
+            logger.info(
+                f"[VERIFY PASSED] Task {task.task_id} Step {current_step_num}: {verification.reason}",
+                extra={"task_id": task.task_id, "step": current_step_num, "phase": "verify"}
+            )
             step.status = "passed"
             step.completed_at = time.time()
             task_manager.add_step(task.task_id, step)
@@ -309,6 +325,10 @@ async def run_react_loop(
         else:
             # Verification Failed -> REPLAN
             attempt_count += 1
+            logger.warning(
+                f"[REPLAN] Task {task.task_id} Step {current_step_num} attempt {attempt_count}/{max_step_attempts} failed verification: {verification.reason}",
+                extra={"task_id": task.task_id, "step": current_step_num, "phase": "replan"}
+            )
             step.error_message = verification.reason
             step.status = "replanned" if attempt_count < max_step_attempts else "failed"
             task_manager.add_step(task.task_id, step)
