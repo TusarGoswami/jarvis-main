@@ -260,3 +260,31 @@ def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str
     except Exception as e:
         return {"status": "error", "message": f"GUI execution failed: {str(e)}"}
 
+
+def send_email(recipient_name: str, body: str) -> dict:
+    """
+    Looks up a contact's email from the database and opens the default mail client.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = con.cursor()
+        cursor.execute("SELECT email, name FROM contacts WHERE LOWER(name) LIKE ? OR LOWER(name) LIKE ?", ('%' + recipient_name.lower() + '%', recipient_name.lower() + '%'))
+        res = cursor.fetchone()
+        con.close()
+        
+        if not res or not res[0]:
+            return {"status": "error", "message": f"Email contact for '{recipient_name}' not found."}
+            
+        recipient_email = res[0]
+        name = res[1]
+        
+        # Construct standard mailto link
+        subject = quote("Message from Assistant")
+        mail_body = quote(body)
+        mailto_url = f"mailto:{recipient_email}?subject={subject}&body={mail_body}"
+        
+        webbrowser.open(mailto_url)
+        return {"status": "success", "action": "send_email", "recipient": name, "email": recipient_email}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+

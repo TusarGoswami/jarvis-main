@@ -143,6 +143,27 @@ def classifyIntent(query):
     if ' ' not in q and re.match(r'^[a-zA-Z0-9-]+\.(com|in|org|net|io|co|dev|me)$', q):
         return 'open', q
 
+    # Email / send email
+    if 'email' in q or 'send hello' in q or 'mail to' in q:
+        email_patterns = [
+            r'^email\s+(\S+)\s+(.+)',
+            r'^send\s+email\s+to\s+(\S+)\s+saying\s+(.+)',
+            r'^send\s+email\s+to\s+(\S+)',
+            r'^send\s+(.+)\s+to\s+(\S+)\s+via\s+email',
+            r'^send\s+(.+)\s+to\s+(\S+)'
+        ]
+        for pattern in email_patterns:
+            match = re.match(pattern, q)
+            if match:
+                if len(match.groups()) == 2:
+                    if pattern.startswith(r'^email') or 'saying' in pattern:
+                        return 'quick_email', (match.group(1), match.group(2))
+                    else:
+                        return 'quick_email', (match.group(2), match.group(1))
+                elif len(match.groups()) == 1:
+                    return 'interactive_email', match.group(1)
+        return 'interactive_email', q
+
     # Messaging / Calls
     if 'send message' in q or 'phone call' in q or 'video call' in q:
         return 'communication', q
@@ -214,6 +235,35 @@ def handleQuickMessage(contact_name, message_text):
         whatsApp(contact_no, message_text, 'message', name)
     else:
         speak(f"Sorry Sir, I couldn't find {contact_name} in your contacts.")
+
+
+def handleQuickEmail(contact_name, message_text):
+    from engine.features import findContactEmail, sendEmail
+    speak(f"Preparing email for {contact_name}")
+    email_address, name = findContactEmail(contact_name)
+    if email_address != 0:
+        sendEmail(email_address, "Message from Assistant", message_text, name)
+    else:
+        speak(f"Sorry Sir, I couldn't find an email for {contact_name} in your contacts.")
+
+
+def handleInteractiveEmail(query):
+    from engine.features import findContactEmail, sendEmail
+    email_address, name = findContactEmail(query)
+    if email_address != 0:
+        speak("What is the subject of the email, Sir?")
+        subject = takecommand()
+        if not subject:
+            speak("I didn't catch the subject, Sir. Cancelled.")
+            return
+        speak("What is the body of the email, Sir?")
+        body = takecommand()
+        if not body:
+            speak("I didn't catch the body, Sir. Cancelled.")
+            return
+        sendEmail(email_address, subject, body, name)
+    else:
+        speak(f"Sorry Sir, I couldn't find an email for {query} in your contacts.")
 
 
 def handleCommunication(query):
@@ -341,6 +391,13 @@ def allCommands(message=1):
                     contact_name, msg_text = data
                     action_plan["actions"].append({"type": "messaging", "contact": contact_name, "message": msg_text})
                     handleQuickMessage(contact_name, msg_text)
+                elif intent == 'quick_email':
+                    contact_name, msg_text = data
+                    action_plan["actions"].append({"type": "email", "contact": contact_name, "message": msg_text})
+                    handleQuickEmail(contact_name, msg_text)
+                elif intent == 'interactive_email':
+                    action_plan["actions"].append({"type": "interactive_workflow", "task": "email", "query": data})
+                    handleInteractiveEmail(data)
                 elif intent == 'communication':
                     action_plan["actions"].append({"type": "interactive_workflow", "task": "communication"})
                     handleCommunication(data)

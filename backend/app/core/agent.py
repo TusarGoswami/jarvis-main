@@ -7,7 +7,7 @@ from google.genai import types
 
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
-from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action
+from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action, send_email
 from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
@@ -101,6 +101,32 @@ async def process_turn(
                         search_res = search_web(search_term)
                         actions_executed.append(search_res)
                         reply_text = f"Opened {primary_target} and searched for {search_term}."
+                elif secondary_action and (secondary_action.startswith("send ") or secondary_action.startswith("email ") or secondary_action.startswith("mail ")):
+                    email_body = None
+                    recipient = None
+                    
+                    send_match = re.search(r'^send\s+(.+?)\s+to\s+(\w+)', secondary_action, re.I)
+                    if send_match:
+                        email_body = send_match.group(1).strip()
+                        recipient = send_match.group(2).strip()
+                    else:
+                        saying_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)\s+saying\s+(.+)', secondary_action, re.I)
+                        if saying_match:
+                            recipient = saying_match.group(1).strip()
+                            email_body = saying_match.group(2).strip()
+                        else:
+                            fallback_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)(?:\s+(.+))?', secondary_action, re.I)
+                            if fallback_match:
+                                recipient = fallback_match.group(1).strip()
+                                email_body = fallback_match.group(2).strip() if fallback_match.group(2) else "Hello"
+
+                    if recipient and email_body:
+                        email_res = send_email(recipient, email_body)
+                        actions_executed.append(email_res)
+                        if email_res.get("status") == "success":
+                            reply_text = f"Opened {primary_target} and drafted email to {email_res.get('recipient')}."
+                        else:
+                            reply_text = f"Opened {primary_target}, but email draft failed: {email_res.get('message')}."
             else:
                 needs_confirmation = not safe
                 confirmation_reason = reason

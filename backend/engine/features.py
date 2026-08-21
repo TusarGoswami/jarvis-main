@@ -265,6 +265,36 @@ def findContact(query):
     except Exception as e:
         speak('not exist in contacts')
         return 0, 0
+
+def findContactEmail(query):
+    words_to_remove = [ASSISTANT_NAME.lower(), 'make', 'a', 'to', 'send', 'email', 'mail', 'write']
+    query = remove_words(query, words_to_remove)
+    try:
+        query = query.strip().lower()
+        cursor.execute("SELECT email, name FROM contacts WHERE LOWER(name) LIKE ? OR LOWER(name) LIKE ?", ('%' + query + '%', query + '%'))
+        results = cursor.fetchall()
+
+        if not results or not results[0][0]:
+            speak(f'Contact {query} does not have an email in your database, Sir.')
+            return 0, 0
+            
+        return results[0][0], results[0][1]
+    except Exception as e:
+        speak('not exist in contacts')
+        return 0, 0
+
+def sendEmail(email_address, subject, body, name):
+    try:
+        encoded_subject = quote(subject)
+        encoded_body = quote(body)
+        mailto_url = f"mailto:{email_address}?subject={encoded_subject}&body={encoded_body}"
+        
+        full_command = f'start "" "{mailto_url}"'
+        subprocess.run(full_command, shell=True)
+        speak(f"Email draft opened for {name}, Sir.")
+    except Exception as e:
+        print(f"sendEmail error: {e}")
+        speak("I encountered an issue opening the email client, Sir.")
     
 def whatsApp(mobile_no, message, flag, name):
     
