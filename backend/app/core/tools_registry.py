@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.core.fs_tools import fs_read, fs_write, fs_edit, fs_list, fs_delete
 from app.core.terminal_tool import execute_terminal_command
 from app.core.web_tool import search_and_scrape
-from app.core.tools import execute_gui_action, launch_target, get_system_stats
+from app.core.tools import execute_gui_action, launch_target, get_system_stats, send_email
 
 class ToolDefinition(BaseModel):
     name: str
@@ -135,6 +135,19 @@ TOOLS_MANIFEST: Dict[str, ToolDefinition] = {
         description="Retrieves live system hardware metrics (CPU, RAM, Disks, Network, Battery).",
         parameters={"type": "object", "properties": {}},
         risk_level="low"
+    ),
+    "send_email": ToolDefinition(
+        name="send_email",
+        description="Sends an email message to a named contact in the database.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "recipient_name": {"type": "string", "description": "The name of the contact"},
+                "body": {"type": "string", "description": "Body content of the email"}
+            },
+            "required": ["recipient_name", "body"]
+        },
+        risk_level="medium"
     )
 }
 
@@ -176,6 +189,8 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
         elif tool_name == "system_telemetry":
             stats = get_system_stats()
             return {"status": "success", "action": "system_telemetry", "data": stats}
+        elif tool_name == "send_email":
+            return send_email(recipient_name=arguments.get("recipient_name"), body=arguments.get("body"))
 
         return {"status": "error", "message": f"Tool '{tool_name}' has no execution handler."}
     except Exception as e:

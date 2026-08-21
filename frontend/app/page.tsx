@@ -28,6 +28,7 @@ export default function VocalisHome() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const [currentAgentSteps, setCurrentAgentSteps] = useState<any[]>([]);
   const [audioMuted, setAudioMuted] = useState(false);
   const [isEvalOpen, setIsEvalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -86,6 +87,22 @@ export default function VocalisHome() {
             if (data.type === "handshake" || data.type === "pong") {
               if (data.stats) setStats(data.stats);
             } else if (data.type === "status") {
+              if (data.state === "processing") setState("processing");
+            } else if (data.type === "step_update") {
+              setCurrentAgentSteps((prev) => {
+                const idx = prev.findIndex((s) => s.step === data.step.step);
+                if (idx > -1) {
+                  const updated = [...prev];
+                  updated[idx] = data.step;
+                  return updated;
+                } else {
+                  return [...prev, data.step];
+                }
+              });
+            } else if (data.type === "turn_result") {
+              const res = data.data;
+              setState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
+              setCurrentAgentSteps([]);
               // Map "processing" to "thinking" in the 5-state system
               if (data.state === "processing") setRawState("thinking");
               if (data.state === "tool_use") setRawState("tool_use");
@@ -204,6 +221,7 @@ export default function VocalisHome() {
 
   // ─── Query Handling (preserved from original) ───
   const handleSendQuery = async (query: string, includeScreen: boolean, lang: string) => {
+    setCurrentAgentSteps([]);
     const userMsg: MessageItem = {
       id: Date.now().toString(),
       sender: "user",
@@ -377,6 +395,85 @@ export default function VocalisHome() {
                   {effectiveState === "tool_use" && "Autonomous tool execution active..."}
                 </motion.p>
               </div>
+              <div className="flex items-center justify-between py-1 border-b border-slate-800">
+                <span>Multi-Lingual STT/TTS</span>
+                <strong className="text-emerald-400">EN, HI, BN</strong>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-slate-800">
+                <span>Vision Screen Analysis</span>
+                <strong className="text-cyan-400">Gemini 2.5 Flash</strong>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-slate-800">
+                <span>Safety Guardrails</span>
+                <strong className="text-cyan-400">Active (70% Gate)</strong>
+              </div>
+              <div className="flex items-center justify-between py-1">
+                <span>Backend Framework</span>
+                <strong className="text-cyan-400">FastAPI + UV</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Center/Right Column: Arc Reactor Core, Action Feed & Multimodal Bar (8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-5">
+          {/* Arc Reactor Centerpiece */}
+          <div className="glass-panel p-6 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden">
+            <ArcReactor state={state} />
+          </div>
+
+          {/* Action and Conversation Feed */}
+          <div className="glass-panel p-5 rounded-2xl flex flex-col min-h-[340px]">
+            <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
+              <span className="font-mono text-xs uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-400 animate-pulse" /> Agentic Activity Stream
+              </span>
+              <span className="text-[10px] font-mono text-gray-400">
+                Confidence &amp; Safety Guardrails Enabled
+              </span>
+            </div>
+            <ActionFeed
+              messages={messages}
+              onConfirmAction={handleConfirmAction}
+              onCancelAction={handleCancelAction}
+              onPlayAudio={handlePlayAudio}
+            />
+
+            {state === "processing" && currentAgentSteps.length > 0 && (
+              <div className="mt-4 p-3 bg-cyan-950/20 border border-cyan-500/20 rounded-xl font-mono text-[11px] text-cyan-300 animate-pulse">
+                <div className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  Execution Steps In Progress:
+                </div>
+                <div className="space-y-1.5 border-l border-cyan-800/80 pl-3">
+                  {currentAgentSteps.map((st, idx) => (
+                    <div key={idx} className="flex flex-col gap-0.5">
+                      <div className="text-gray-300 italic">💭 {st.thought}</div>
+                      {st.action && (
+                        <div className="text-cyan-400 font-bold flex items-center gap-1">
+                          ⚡ Tool: {st.action} ({st.status})
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Multimodal Input Bar */}
+          <MultimodalBar
+            onSendQuery={handleSendQuery}
+            isListening={state === "listening"}
+            onToggleListening={toggleListening}
+            isLoading={state === "processing"}
+          />
+        </div>
+      </div>
+
+      {/* Eval Benchmark Modal for Hackathon Judges */}
+      <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />
+    </main>
 
               {/* Voice input bar (fixed bottom center) */}
               <VoiceInputBar

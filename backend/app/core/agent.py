@@ -2,16 +2,16 @@ import time
 import os
 import re
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
-from google import genai
+from typing import List, Optional, Any, Dict, Callable, Awaitable
 from google.genai import types
 
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
-from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action
+from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action, send_email
 from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
+from app.core.llm_provider import generate_multimodal_content
 
 class AgentResponse(BaseModel):
     reply_text: str
@@ -53,7 +53,8 @@ async def process_turn(
     user_query: str,
     image_bytes: Optional[bytes] = None,
     client_lang: Optional[str] = None,
-    allow_actions: bool = True
+    allow_actions: bool = True,
+    on_step_update: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
 ) -> AgentResponse:
     start_time = time.time()
     q = user_query.strip()
@@ -100,6 +101,32 @@ async def process_turn(
                         search_res = search_web(search_term)
                         actions_executed.append(search_res)
                         reply_text = f"Opened {primary_target} and searched for {search_term}."
+                elif secondary_action and (secondary_action.startswith("send ") or secondary_action.startswith("email ") or secondary_action.startswith("mail ")):
+                    email_body = None
+                    recipient = None
+                    
+                    send_match = re.search(r'^send\s+(.+?)\s+to\s+(\w+)', secondary_action, re.I)
+                    if send_match:
+                        email_body = send_match.group(1).strip()
+                        recipient = send_match.group(2).strip()
+                    else:
+                        saying_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)\s+saying\s+(.+)', secondary_action, re.I)
+                        if saying_match:
+                            recipient = saying_match.group(1).strip()
+                            email_body = saying_match.group(2).strip()
+                        else:
+                            fallback_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)(?:\s+(.+))?', secondary_action, re.I)
+                            if fallback_match:
+                                recipient = fallback_match.group(1).strip()
+                                email_body = fallback_match.group(2).strip() if fallback_match.group(2) else "Hello"
+
+                    if recipient and email_body:
+                        email_res = send_email(recipient, email_body)
+                        actions_executed.append(email_res)
+                        if email_res.get("status") == "success":
+                            reply_text = f"Opened {primary_target} and drafted email to {email_res.get('recipient')}."
+                        else:
+                            reply_text = f"Opened {primary_target}, but email draft failed: {email_res.get('message')}."
             else:
                 needs_confirmation = not safe
                 confirmation_reason = reason
@@ -154,12 +181,13 @@ async def process_turn(
         "terminal", "run", "code", "search", "scrape", "directory", "list", "test", "folder"
     ])
 
-    if is_agentic_task and allow_actions and settings.GEMINI_API_KEY:
+    if is_agentic_task and allow_actions and (settings.GEMINI_API_KEY or settings.GROQ_API_KEY):
         react_res = await run_react_loop(
             user_query=q,
             image_bytes=image_bytes,
             client_lang=target_lang,
-            allow_actions=allow_actions
+            allow_actions=allow_actions,
+            on_step_update=on_step_update
         )
         latency = max(0.1, round((time.time() - start_time) * 1000, 2))
         return AgentResponse(
@@ -176,12 +204,11 @@ async def process_turn(
             token_usage={"prompt_tokens": len(react_res.steps) * 150, "response_tokens": 100}
         )
 
-    # Multimodal / LLM processing
-    genai_client = get_genai_client()
-    if genai_client is None:
-        # Fallback without API key
+    # Multimodal / LLM processing with Gemini-Groq failover
+    if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
+        # Fallback without API keys
         return AgentResponse(
-            reply_text="Vocalis AI is running in local offline mode. Gemini API Key is not configured in the vault.",
+            reply_text="Vocalis AI is running in local offline mode. Neither Gemini nor Groq API keys are configured in the vault or env.",
             language=target_lang,
             confidence=0.60,
             intent="offline_fallback",
@@ -198,20 +225,14 @@ async def process_turn(
 
         full_prompt = f"{VOCALIS_PERSONA}\n{lang_prompt}{rag_context}\n\nUser Question: {q}"
 
-        contents = []
         if image_bytes:
-            contents.append(
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
-            )
             intent = "multimodal_vision"
-        contents.append(full_prompt)
 
-        response = genai_client.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=contents,
+        reply_text, provider = await generate_multimodal_content(
+            prompt_text=full_prompt,
+            image_bytes=image_bytes,
+            system_instruction=None
         )
-        
-        reply_text = response.text or "I processed your request."
         confidence = 0.96
 
         # Parse GUI actions from response

@@ -21,6 +21,8 @@ class Settings(BaseModel):
     # Model configuration
     GEMINI_MODEL: str = "gemini-2.5-flash"
     FALLBACK_MODEL: str = "gemini-1.5-flash"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_VISION_MODEL: str = "llama-3.2-11b-vision-preview"
     
     # Secure API Key loading
     @property
