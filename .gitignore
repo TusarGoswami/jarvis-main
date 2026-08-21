@@ -43,3 +43,8 @@ frontend/out/
 frontend/build/
 frontend/.vercel/
 node_modules/
+
+# Logs
+backend/logs/
+logs/
+*.log
