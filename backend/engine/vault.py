@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from cryptography.fernet import Fernet
 
 # Key stored outside project root for security
@@ -42,3 +43,34 @@ def decrypt_key():
         return f.decrypt(cipher_text).decode()
     except Exception:
         return None
+
+def encrypt_data(plain_text: Optional[str]) -> Optional[str]:
+    """Encrypt a string payload and return a tagged 'enc::' token."""
+    if plain_text is None:
+        return None
+    if isinstance(plain_text, str) and plain_text.startswith("enc::"):
+        return plain_text
+    
+    f = Fernet(get_crypto_key())
+    token = f.encrypt(plain_text.encode("utf-8")).decode("utf-8")
+    return f"enc::{token}"
+
+def decrypt_data(cipher_text: Optional[str]) -> Optional[str]:
+    """
+    Decrypts an 'enc::' tagged token back to plaintext.
+    Gracefully returns plaintext if the string is unencrypted (legacy data fallback).
+    """
+    if cipher_text is None:
+        return None
+    if not isinstance(cipher_text, str) or not cipher_text.startswith("enc::"):
+        return cipher_text
+    
+    token = cipher_text[5:]
+    f = Fernet(get_crypto_key())
+    try:
+        return f.decrypt(token.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # Fallback in case of corruption or unencrypted content
+        return cipher_text
+
+
