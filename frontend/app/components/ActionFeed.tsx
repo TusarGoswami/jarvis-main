@@ -2,21 +2,10 @@
 
 import React from "react";
 import { CheckCircle2, ShieldCheck, ShieldAlert, Cpu, Sparkles, Volume2 } from "lucide-react";
+import type { MessageItem } from "./types";
 
-export interface MessageItem {
-  id: string;
-  sender: "user" | "vocalis";
-  text: string;
-  timestamp: string;
-  language?: string;
-  confidence?: number;
-  intent?: string;
-  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string }>;
-  needsConfirmation?: boolean;
-  confirmationReason?: string;
-  citations?: string[];
-  latencyMs?: number;
-}
+// Re-export for backward compatibility
+export type { MessageItem };
 
 interface ActionFeedProps {
   messages: MessageItem[];
@@ -32,7 +21,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
   onPlayAudio,
 }) => {
   return (
-    <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-4 max-h-[500px]">
+    <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-4">
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-500 font-mono text-xs gap-2">
           <Sparkles className="w-8 h-8 text-cyan-500/40 animate-pulse" />

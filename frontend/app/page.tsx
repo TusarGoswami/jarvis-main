@@ -1,26 +1,77 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
-import React, { useState, useEffect, useRef } from "react";
-import { ArcReactor } from "./components/ArcReactor";
-import { TelemetryPanel, SystemStats } from "./components/TelemetryPanel";
-import { MultimodalBar } from "./components/MultimodalBar";
-import { ActionFeed, MessageItem } from "./components/ActionFeed";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { motion } from "framer-motion";
+
+// Components
+import { ParticleBackground } from "./components/ParticleBackground";
+import { AssistantAvatar } from "./components/AssistantAvatar";
+import { StateRing } from "./components/StateRing";
+import { VoiceInputBar } from "./components/VoiceInputBar";
+import { ActivityDrawer } from "./components/ActivityDrawer";
+import { TelemetryStrip } from "./components/TelemetryStrip";
+import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
-import { Terminal, Shield, Activity, Award, Volume2, VolumeX, Eye } from "lucide-react";
+
+// Hooks & Types
+import { AssistantContext } from "./hooks/useAssistantState";
+import type { AssistantState, MessageItem, SystemStats } from "./components/types";
 
 export default function VocalisHome() {
-  const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [state, setState] = useState<"idle" | "listening" | "processing" | "speaking">("idle");
+  // ─── Core State ───
+  const [rawState, setRawState] = useState<AssistantState>("idle");
   const [stats, setStats] = useState<SystemStats | null>(null);
-  const [isEvalOpen, setIsEvalOpen] = useState(false);
-  const [audioMuted, setAudioMuted] = useState(false);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [isEvalOpen, setIsEvalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
+  // ─── Dev Override State ───
+  const [devOverride, setDevOverride] = useState<AssistantState | null>(null);
+  const [devAmplitude, setDevAmplitude] = useState(0);
+  const [liveAmplitude, setLiveAmplitude] = useState(0);
+
+  // Effective state (dev override takes priority)
+  const effectiveState = devOverride ?? rawState;
+  const effectiveAmplitude = devOverride !== null ? devAmplitude : liveAmplitude;
+
+  // ─── Refs ───
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Initialize WebSocket connection to FastAPI backend
+  // ─── Context value (memoized for performance) ───
+  const contextValue = useMemo(
+    () => ({
+      state: effectiveState,
+      audioAmplitude: effectiveAmplitude,
+      transcript: "",
+      isConnected: isWsConnected,
+      devOverride,
+      setDevOverride,
+      setDevAmplitude,
+    }),
+    [effectiveState, effectiveAmplitude, isWsConnected, devOverride]
+  );
+
+  // ─── Track unread messages when drawer is closed ───
+  const prevMessageCount = useRef(0);
+  useEffect(() => {
+    if (messages.length > prevMessageCount.current && !isDrawerOpen) {
+      const newCount = messages.length - prevMessageCount.current;
+      setUnreadCount((c) => c + newCount);
+    }
+    prevMessageCount.current = messages.length;
+  }, [messages.length, isDrawerOpen]);
+
+  // Clear unread when drawer opens
+  useEffect(() => {
+    if (isDrawerOpen) setUnreadCount(0);
+  }, [isDrawerOpen]);
+
+  // ─── WebSocket Connection (preserved from original) ───
   useEffect(() => {
     let ws: WebSocket;
     const connect = () => {
@@ -38,10 +89,11 @@ export default function VocalisHome() {
             if (data.type === "handshake" || data.type === "pong") {
               if (data.stats) setStats(data.stats);
             } else if (data.type === "status") {
-              if (data.state === "processing") setState("processing");
+              // Map "processing" to "thinking" in the new 5-state system
+              if (data.state === "processing") setRawState("thinking");
             } else if (data.type === "turn_result") {
               const res = data.data;
-              setState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
+              setRawState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
 
               const newMsg: MessageItem = {
                 id: Date.now().toString(),
@@ -63,10 +115,10 @@ export default function VocalisHome() {
               // Play audio if provided and not muted
               if (data.audio_base64 && !audioMuted) {
                 const audio = new Audio(`data:audio/mpeg;base64,${data.audio_base64}`);
-                audio.onended = () => setState("idle");
-                audio.play().catch(() => setState("idle"));
+                audio.onended = () => setRawState("idle");
+                audio.play().catch(() => setRawState("idle"));
               } else {
-                setState("idle");
+                setRawState("idle");
               }
             }
           } catch (err) {
@@ -85,7 +137,7 @@ export default function VocalisHome() {
 
     connect();
 
-    // Fetch initial system telemetry via REST
+    // Fetch initial system telemetry via REST (preserved from original)
     const fetchStats = async () => {
       try {
         const res = await fetch("http://127.0.0.1:8005/api/system/stats");
@@ -94,7 +146,7 @@ export default function VocalisHome() {
           setStats(json.data);
         }
       } catch {
-        // Fallback default stats
+        // Fallback default stats handled by TelemetryStrip
       }
     };
     fetchStats();
@@ -106,13 +158,13 @@ export default function VocalisHome() {
     };
   }, [audioMuted]);
 
-  // Voice speech recognition setup
+  // ─── Voice Speech Recognition (preserved from original) ───
   const toggleListening = () => {
-    if (state === "listening") {
+    if (rawState === "listening") {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
-      setState("idle");
+      setRawState("idle");
       return;
     }
 
@@ -130,27 +182,28 @@ export default function VocalisHome() {
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
-      setState("listening");
+      setRawState("listening");
     };
 
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
-      setState("idle");
+      setRawState("idle");
       handleSendQuery(transcript, false, "auto");
     };
 
     recognition.onerror = () => {
-      setState("idle");
+      setRawState("idle");
     };
 
     recognition.onend = () => {
-      setState("idle");
+      setRawState("idle");
     };
 
     recognitionRef.current = recognition;
     recognition.start();
   };
 
+  // ─── Query Handling (preserved from original) ───
   const handleSendQuery = async (query: string, includeScreen: boolean, lang: string) => {
     const userMsg: MessageItem = {
       id: Date.now().toString(),
@@ -159,7 +212,7 @@ export default function VocalisHome() {
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setMessages((prev) => [...prev, userMsg]);
-    setState("processing");
+    setRawState("thinking");
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
@@ -171,7 +224,7 @@ export default function VocalisHome() {
         })
       );
     } else {
-      // Fallback REST endpoint
+      // Fallback REST endpoint (preserved from original)
       try {
         const res = await fetch("http://127.0.0.1:8005/api/agent/command", {
           method: "POST",
@@ -183,7 +236,7 @@ export default function VocalisHome() {
           }),
         });
         const resData = await res.json();
-        setState("idle");
+        setRawState("idle");
 
         const vocalisMsg: MessageItem = {
           id: (Date.now() + 1).toString(),
@@ -201,17 +254,17 @@ export default function VocalisHome() {
         };
         setMessages((prev) => [...prev, vocalisMsg]);
       } catch (err) {
-        setState("idle");
+        setRawState("idle");
         console.error(err);
       }
     }
   };
 
+  // ─── Action Confirmation (preserved from original) ───
   const handleConfirmAction = async (messageId: string) => {
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, needsConfirmation: false } : m))
     );
-    // Execute authorized action
     handleSendQuery("Execute authorized action", false, "en");
   };
 
@@ -221,6 +274,7 @@ export default function VocalisHome() {
     );
   };
 
+  // ─── TTS Audio Playback (preserved from original) ───
   const handlePlayAudio = async (text: string, lang?: string) => {
     try {
       const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
@@ -232,139 +286,96 @@ export default function VocalisHome() {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        setState("speaking");
-        audio.onended = () => setState("idle");
-        audio.play().catch(() => setState("idle"));
+        setRawState("speaking");
+        audio.onended = () => setRawState("idle");
+        audio.play().catch(() => setRawState("idle"));
       }
     } catch {
-      setState("idle");
+      setRawState("idle");
     }
   };
 
+  // ─── "Spotlight" behavior: dim side elements when not idle ───
+  const isActive = effectiveState !== "idle";
+
   return (
-    <main className="min-h-screen bg-[#030712] text-gray-100 flex flex-col scanline relative">
-      {/* Top Futuristic Header */}
-      <header className="border-b border-cyan-500/20 bg-slate-950/80 backdrop-blur-md px-6 py-3.5 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center shadow-[0_0_15px_rgba(0,240,255,0.4)]">
-            <Terminal className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-black font-mono tracking-wider text-cyan-300">
-                VOCALIS AI
-              </h1>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 font-semibold">
-                v2.0.0 MULTIMODAL OS
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-400 font-mono">
-              Hybrid Vision + Voice Autonomous Intelligence Engine
-            </p>
-          </div>
-        </div>
+    <AssistantContext.Provider value={contextValue}>
+      <main className="min-h-screen bg-[#030712] text-gray-100 relative overflow-hidden">
+        {/* Animated particle background */}
+        <ParticleBackground />
 
-        {/* Right header controls */}
-        <div className="flex items-center gap-3 font-mono text-xs">
-          <button
-            onClick={() => setIsEvalOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/50 flex items-center gap-1.5 transition shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+        {/* Telemetry strip (thin top bar) */}
+        <TelemetryStrip
+          stats={stats}
+          isConnected={isWsConnected}
+          audioMuted={audioMuted}
+          onToggleMute={() => setAudioMuted(!audioMuted)}
+          onOpenEvals={() => setIsEvalOpen(true)}
+        />
+
+        {/* ─── Central Avatar Stage ─── */}
+        <div className="relative z-10 flex flex-col items-center justify-center min-h-screen pt-12 pb-28">
+          {/* Avatar + Ring container */}
+          <motion.div
+            className="relative flex items-center justify-center"
+            style={{
+              width: "clamp(340px, 45vw, 520px)",
+              height: "clamp(340px, 45vw, 520px)",
+            }}
+            animate={{
+              scale: isActive ? 1.02 : 1,
+            }}
+            transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
-            <Award className="w-4 h-4 text-cyan-400" />
-            <span>Eval Harness (20 Tests)</span>
-          </button>
+            {/* State ring behind avatar */}
+            <StateRing />
 
-          <button
-            onClick={() => setAudioMuted(!audioMuted)}
-            title="Toggle TTS audio voice feedback"
-            className={`p-2 rounded-xl border transition ${
-              audioMuted
-                ? "bg-slate-900 border-slate-700 text-gray-500"
-                : "bg-cyan-950 border-cyan-500/40 text-cyan-300"
-            }`}
+            {/* Robot avatar centered inside ring */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <AssistantAvatar />
+            </div>
+          </motion.div>
+
+          {/* Subtle ambient text */}
+          <motion.p
+            className="mt-6 text-gray-500 text-sm font-mono tracking-wide text-center"
+            animate={{
+              opacity: isActive ? 0.3 : 0.7,
+            }}
+            transition={{ duration: 0.5 }}
           >
-            {audioMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px]">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isWsConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"
-              }`}
-            />
-            <span className="text-gray-300">{isWsConnected ? "WS STREAM ACTIVE" : "OFFLINE / REST"}</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Grid Layout */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Telemetry & Status (4 cols) */}
-        <div className="lg:col-span-4 flex flex-col gap-5">
-          <TelemetryPanel stats={stats} />
-
-          <div className="glass-panel p-4 rounded-2xl flex flex-col gap-2.5 font-mono text-xs">
-            <span className="text-gray-400 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-cyan-400" /> Core Capabilities
-            </span>
-            <div className="flex flex-col gap-1 text-[11px] text-gray-300">
-              <div className="flex items-center justify-between py-1 border-b border-slate-800">
-                <span>Multi-Lingual STT/TTS</span>
-                <strong className="text-emerald-400">EN, HI, BN</strong>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-slate-800">
-                <span>Vision Screen Analysis</span>
-                <strong className="text-cyan-400">Gemini 2.0 Flash</strong>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-slate-800">
-                <span>Tool Safety Guardrails</span>
-                <strong className="text-cyan-400">Active (70% Gate)</strong>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span>Backend Framework</span>
-                <strong className="text-cyan-400">FastAPI + UV</strong>
-              </div>
-            </div>
-          </div>
+            {effectiveState === "idle" && "Say something or type a command..."}
+            {effectiveState === "listening" && "I'm listening..."}
+            {effectiveState === "thinking" && "Processing your request..."}
+            {effectiveState === "speaking" && ""}
+            {effectiveState === "tool_use" && "Executing actions..."}
+          </motion.p>
         </div>
 
-        {/* Center/Right Column: Arc Reactor Core, Action Feed & Multimodal Bar (8 cols) */}
-        <div className="lg:col-span-8 flex flex-col gap-5">
-          {/* Arc Reactor Centerpiece */}
-          <div className="glass-panel p-6 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden">
-            <ArcReactor state={state} />
-          </div>
+        {/* Voice input bar (fixed bottom center) */}
+        <VoiceInputBar
+          onSendQuery={handleSendQuery}
+          onToggleListening={toggleListening}
+          isLoading={effectiveState === "thinking"}
+        />
 
-          {/* Action and Conversation Feed */}
-          <div className="glass-panel p-5 rounded-2xl flex flex-col min-h-[340px]">
-            <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
-              <span className="font-mono text-xs uppercase tracking-widest text-cyan-400 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-cyan-400 animate-pulse" /> Agentic Activity Stream
-              </span>
-              <span className="text-[10px] font-mono text-gray-400">
-                Confidence &amp; Safety Guardrails Enabled
-              </span>
-            </div>
-            <ActionFeed
-              messages={messages}
-              onConfirmAction={handleConfirmAction}
-              onCancelAction={handleCancelAction}
-              onPlayAudio={handlePlayAudio}
-            />
-          </div>
+        {/* Activity drawer (slide-in from right) */}
+        <ActivityDrawer
+          isOpen={isDrawerOpen}
+          onToggle={() => setIsDrawerOpen(!isDrawerOpen)}
+          messages={messages}
+          onConfirmAction={handleConfirmAction}
+          onCancelAction={handleCancelAction}
+          onPlayAudio={handlePlayAudio}
+          unreadCount={unreadCount}
+        />
 
-          {/* Multimodal Input Bar */}
-          <MultimodalBar
-            onSendQuery={handleSendQuery}
-            isListening={state === "listening"}
-            onToggleListening={toggleListening}
-            isLoading={state === "processing"}
-          />
-        </div>
-      </div>
+        {/* Dev state toggle (bottom-left, for testing) */}
+        <DevStateToggle />
 
-      {/* Eval Benchmark Modal for Hackathon Judges */}
-      <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />
-    </main>
+        {/* Eval benchmark modal (preserved from original) */}
+        <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />
+      </main>
+    </AssistantContext.Provider>
   );
 }

@@ -7,28 +7,16 @@
   --neon-blue: #0070f3;
   --neon-emerald: #10b981;
   --neon-amber: #f59e0b;
+  --neon-purple: #a855f7;
 }
 
 body {
   background-color: #030712;
   color: #f3f4f6;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   overflow-x: hidden;
 }
 
-/* Futuristic Scanline Effect */
-.scanline {
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0),
-    rgba(255,255,255,0) 50%,
-    rgba(0, 240, 255, 0.04) 50%,
-    rgba(0, 240, 255, 0.04)
-  );
-  background-size: 100% 4px;
-}
-
-/* Glassmorphism Cards */
+/* ─── Glassmorphism Cards ─── */
 .glass-panel {
   background: rgba(10, 17, 34, 0.75);
   backdrop-filter: blur(16px);
@@ -45,7 +33,7 @@ body {
   box-shadow: 0 0 25px rgba(0, 240, 255, 0.15);
 }
 
-/* Glow Utilities */
+/* ─── Glow Utilities ─── */
 .glow-cyan {
   text-shadow: 0 0 10px rgba(0, 240, 255, 0.6), 0 0 20px rgba(0, 240, 255, 0.3);
 }
@@ -54,22 +42,61 @@ body {
   box-shadow: 0 0 15px rgba(0, 240, 255, 0.3), inset 0 0 15px rgba(0, 240, 255, 0.1);
 }
 
-@keyframes spin-slow {
-  from {
-    transform: rotate(0deg);
+/* ─── State-specific glow keyframes ─── */
+@keyframes glow-idle {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.2), 0 0 60px rgba(0, 240, 255, 0.1);
   }
-  to {
-    transform: rotate(360deg);
+  50% {
+    box-shadow: 0 0 40px rgba(0, 240, 255, 0.35), 0 0 80px rgba(0, 240, 255, 0.15);
   }
 }
 
+@keyframes glow-listening {
+  0%, 100% {
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.3), 0 0 80px rgba(16, 185, 129, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(16, 185, 129, 0.5), 0 0 120px rgba(16, 185, 129, 0.25);
+  }
+}
+
+@keyframes glow-thinking {
+  0%, 100% {
+    box-shadow: 0 0 35px rgba(245, 158, 11, 0.25), 0 0 70px rgba(245, 158, 11, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 50px rgba(245, 158, 11, 0.4), 0 0 100px rgba(245, 158, 11, 0.2);
+  }
+}
+
+@keyframes glow-speaking {
+  0%, 100% {
+    box-shadow: 0 0 50px rgba(168, 85, 247, 0.35), 0 0 100px rgba(168, 85, 247, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 70px rgba(168, 85, 247, 0.55), 0 0 140px rgba(168, 85, 247, 0.3);
+  }
+}
+
+@keyframes glow-tool-use {
+  0%, 100% {
+    box-shadow: 0 0 40px rgba(6, 182, 212, 0.3), 0 0 80px rgba(6, 182, 212, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 55px rgba(6, 182, 212, 0.5), 0 0 110px rgba(6, 182, 212, 0.25);
+  }
+}
+
+/* ─── Spin animations (carried forward) ─── */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes spin-reverse {
-  from {
-    transform: rotate(360deg);
-  }
-  to {
-    transform: rotate(0deg);
-  }
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
 }
 
 @keyframes pulse-glow {
@@ -97,7 +124,7 @@ body {
   animation: pulse-glow 3s ease-in-out infinite;
 }
 
-/* Custom Scrollbar */
+/* ─── Custom Scrollbar ─── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -111,4 +138,13 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 240, 255, 0.6);
+}
+
+/* ─── Hide scrollbar but keep functionality ─── */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

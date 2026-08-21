@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "Vocalis AI — Multimodal Voice & Vision Agentic OS",
@@ -13,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="antialiased bg-[#030712] text-gray-100">
+      <body className={`${inter.variable} font-sans antialiased bg-[#030712] text-gray-100`}>
         {children}
       </body>
     </html>
