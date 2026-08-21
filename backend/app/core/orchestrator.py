@@ -97,7 +97,7 @@ async def run_react_loop(
     
     if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
         return OrchestratorResult(
-            final_text="Vocalis AI is running in offline mode. Please configure GEMINI_API_KEY or GROQ_API_KEY.",
+            final_text="Api has been exhausted, plz try after sometime",
             steps=[],
             actions_executed=[],
             total_latency_ms=round((time.time() - start_time) * 1000, 2),

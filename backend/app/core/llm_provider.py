@@ -186,4 +186,4 @@ async def generate_multimodal_content(
         except Exception as ge:
             logger.error(f"Groq fallback failed: {ge}")
 
-    return "I am currently unable to process your request due to upstream AI provider unavailability.", "offline"
+    return "Api has been exhausted, plz try after sometime", "exhausted"

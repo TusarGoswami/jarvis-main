@@ -208,7 +208,7 @@ async def process_turn(
     if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
         # Fallback without API keys
         return AgentResponse(
-            reply_text="Vocalis AI is running in local offline mode. Neither Gemini nor Groq API keys are configured in the vault or env.",
+            reply_text="Api has been exhausted, plz try after sometime",
             language=target_lang,
             confidence=0.60,
             intent="offline_fallback",

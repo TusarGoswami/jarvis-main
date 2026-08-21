@@ -332,6 +332,11 @@ def _strict_heuristic_evaluator(
     events = [
         {
             "timestamp": _get_timestamp_str(),
+            "event": "API Notice",
+            "details": "Api has been exhausted, plz try after sometime"
+        },
+        {
+            "timestamp": _get_timestamp_str(),
             "event": f"Answer Evaluated: {score}/10",
             "details": justification
         },
