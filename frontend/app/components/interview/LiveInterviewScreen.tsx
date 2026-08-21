@@ -12,6 +12,10 @@ import {
   Activity,
   Layers,
   SkipForward,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 import { InterviewerAvatar } from "./InterviewerAvatar";
@@ -27,13 +31,27 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
 }) => {
   const [session, setSession] = useState<any | null>(null);
   const [answerText, setAnswerText] = useState<string>("");
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [isReadingQuestion, setIsReadingQuestion] = useState<boolean>(false);
   const [interviewerState, setInterviewerState] = useState<"thinking" | "question_ready">("thinking");
   const [timeRemaining, setTimeRemaining] = useState<number>(3600);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const recognitionRef = useRef<any>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const activityScrollRef = useRef<HTMLDivElement>(null);
+  const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Format MM:SS
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // 1. Initial Start & Fetch Session State
   const fetchSessionState = useCallback(async () => {
@@ -89,7 +107,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     };
   }, [interviewId]);
 
-  // 2. Server-Synced Countdown Timer (polls backend every 10s for source of truth sync)
+  // 2. Server-Synced Countdown Timer
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setTimeRemaining((prev) => Math.max(0, prev - 1));
@@ -112,20 +130,169 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     }
   }, [session?.activity_log?.length]);
 
-  // Format MM:SS
-  const formatTimer = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  // 3. Real-Time Speech Recognition (STT) Setup
+  const toggleListening = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      setInterimTranscript("");
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please type your response.");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setErrorMsg(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let finalTrans = "";
+        let currentInterim = "";
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcriptChunk = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTrans += transcriptChunk + " ";
+          } else {
+            currentInterim += transcriptChunk;
+          }
+        }
+
+        if (finalTrans) {
+          setAnswerText((prev) => {
+            const separator = prev.length > 0 && !prev.endsWith(" ") ? " " : "";
+            return prev + separator + finalTrans;
+          });
+        }
+        setInterimTranscript(currentInterim);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition notice:", event.error);
+        if (event.error === "not-allowed") {
+          setIsListening(false);
+          setErrorMsg("Microphone permission denied. Please allow microphone access.");
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterimTranscript("");
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e: any) {
+      console.error("Speech Recognition Error:", e);
+      setIsListening(false);
+    }
   };
 
-  // 3. Submit Candidate Answer
+  // Stop listening on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+      }
+    };
+  }, []);
+
+  // 4. Live Audio Waveform Canvas Animation
+  useEffect(() => {
+    if (!isListening) return;
+    const canvas = waveCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let t = 0;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bars = 24;
+      const barWidth = canvas.width / bars;
+
+      for (let i = 0; i < bars; i++) {
+        const h = (Math.sin(t * 5 + i * 0.4) * 0.35 + 0.5) * canvas.height * 0.85;
+        const x = i * barWidth + barWidth * 0.15;
+        const y = (canvas.height - h) / 2;
+        ctx.fillStyle = "rgba(0, 240, 255, 0.85)";
+        ctx.fillRect(x, y, barWidth * 0.7, h);
+      }
+      t += 0.02;
+      animId = requestAnimationFrame(draw);
+    };
+
+    draw();
+    return () => cancelAnimationFrame(animId);
+  }, [isListening]);
+
+  // 5. Read Out Question via TTS
+  const handleReadQuestion = async (text: string) => {
+    if (isReadingQuestion && currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      setIsReadingQuestion(false);
+      return;
+    }
+
+    try {
+      setIsReadingQuestion(true);
+      const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language: "en" }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudioRef.current = audio;
+        audio.onended = () => setIsReadingQuestion(false);
+        audio.play().catch(() => setIsReadingQuestion(false));
+      } else {
+        setIsReadingQuestion(false);
+      }
+    } catch {
+      setIsReadingQuestion(false);
+    }
+  };
+
+  // 6. Submit Candidate Answer
   const handleSubmitAnswer = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!answerText.trim() || submitting) return;
+    const finalAnswer = (answerText + (interimTranscript ? (answerText.length > 0 && !answerText.endsWith(" ") ? " " : "") + interimTranscript : "")).trim();
+    if (!finalAnswer || submitting) return;
 
-    const answer = answerText.trim();
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      setIsListening(false);
+    }
+
     setAnswerText("");
+    setInterimTranscript("");
     setSubmitting(true);
     setInterviewerState("thinking");
     setErrorMsg(null);
@@ -136,7 +303,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           interview_id: interviewId,
-          answer: answer,
+          answer: finalAnswer,
         }),
       });
 
@@ -151,16 +318,20 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
       }
     } catch (err: any) {
       setErrorMsg(err.message || "Network error. Please try resubmitting.");
-      setAnswerText(answer); // restore input
+      setAnswerText(finalAnswer);
     } finally {
       setSubmitting(false);
       setInterviewerState("question_ready");
     }
   };
 
-  // 4. Skip Question
+  // 7. Skip Question
   const handleSkipQuestion = async () => {
     if (submitting) return;
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
     setSubmitting(true);
     setInterviewerState("thinking");
     try {
@@ -294,12 +465,30 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                   className="w-full bg-black/60 p-5 sm:p-6 rounded-2xl border border-cyan-500/30 text-left flex flex-col gap-2 shadow-inner"
                 >
                   <div className="flex items-center justify-between text-[11px] text-gray-400 border-b border-slate-800 pb-2">
-                    <span className="text-cyan-400 font-bold">
-                      {currentQ?.id || "QUESTION 01"}
-                    </span>
-                    <span className="text-gray-500">
-                      {currentQ?.context || "Technical Inquiry"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-cyan-400 font-bold">
+                        {currentQ?.id || "QUESTION 01"}
+                      </span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-gray-500">
+                        {currentQ?.context || "Technical Inquiry"}
+                      </span>
+                    </div>
+
+                    {/* Read Out Question via Audio */}
+                    <button
+                      type="button"
+                      onClick={() => handleReadQuestion(currentQ?.text || "")}
+                      title="Speak question aloud"
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-mono transition flex items-center gap-1.5 ${
+                        isReadingQuestion
+                          ? "bg-cyan-500 text-black font-bold border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.6)]"
+                          : "bg-slate-900 border-slate-700 text-gray-300 hover:text-cyan-300"
+                      }`}
+                    >
+                      {isReadingQuestion ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{isReadingQuestion ? "Stop Audio" : "Play Voice"}</span>
+                    </button>
                   </div>
 
                   <p className="text-sm sm:text-base text-gray-100 font-sans leading-relaxed pt-1 font-medium">
@@ -308,68 +497,158 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                 </motion.div>
               </div>
 
-              {/* Candidate Answer Input Area */}
+              {/* ─── Real-Time Voice & Text Candidate Response Area ─── */}
               <form
                 onSubmit={handleSubmitAnswer}
-                className="glass-panel p-5 rounded-2xl flex flex-col gap-3 border border-cyan-500/25 shadow-lg"
+                className={`glass-panel p-5 rounded-2xl flex flex-col gap-3 border transition-all duration-300 shadow-lg ${
+                  isListening
+                    ? "border-cyan-400 shadow-[0_0_35px_rgba(0,240,255,0.3)] bg-slate-950/95"
+                    : "border-cyan-500/25"
+                }`}
               >
+                {/* Header with Live Voice Toggle */}
                 <div className="flex items-center justify-between text-xs">
-                  <label className="text-gray-300 font-bold flex items-center gap-1.5">
-                    <span>Your Technical Response:</span>
-                  </label>
-                  <span className="text-gray-500 text-[11px]">
-                    Press <strong className="text-cyan-400">Ctrl+Enter</strong> or click Submit
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-gray-300 font-bold flex items-center gap-1.5">
+                      <span>Your Technical Response:</span>
+                    </label>
+
+                    {/* Live Voice Status Pill */}
+                    {isListening && (
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 text-[10px] animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                        <span>LIVE VOICE TRANSCRIBING</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Mic Button in Header */}
+                  <button
+                    type="button"
+                    onClick={toggleListening}
+                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
+                      isListening
+                        ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.7)] animate-pulse"
+                        : "bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/80 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                    }`}
+                  >
+                    {isListening ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5" />
+                        <span>Stop Mic</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Speak (Voice Input)</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
-                <textarea
-                  value={answerText}
-                  onChange={(e) => setAnswerText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                      e.preventDefault();
-                      handleSubmitAnswer();
+                {/* Textarea with Real-Time Reflection */}
+                <div className="relative">
+                  <textarea
+                    value={answerText + (interimTranscript ? (answerText.length > 0 && !answerText.endsWith(" ") ? " " : "") + interimTranscript : "")}
+                    onChange={(e) => setAnswerText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        handleSubmitAnswer();
+                      }
+                    }}
+                    disabled={submitting}
+                    rows={6}
+                    placeholder={
+                      isListening
+                        ? "🎙️ Listening to your voice in real time... Speak clearly into your mic."
+                        : "Type or click 'Speak' to answer by voice. Be specific about technologies, architecture, and tradeoffs..."
                     }
-                  }}
-                  disabled={submitting}
-                  rows={5}
-                  placeholder="Type your structured answer here. Be specific about technologies, architecture, and tradeoffs..."
-                  className="w-full bg-slate-950/90 border border-cyan-500/30 rounded-xl p-3.5 text-xs sm:text-sm font-sans text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 leading-relaxed transition-all"
-                />
+                    className={`w-full bg-slate-950/90 rounded-xl p-4 text-xs sm:text-sm font-sans text-gray-100 placeholder-gray-500 focus:outline-none leading-relaxed transition-all border ${
+                      isListening
+                        ? "border-cyan-400/80 bg-black/80 ring-2 ring-cyan-500/20"
+                        : "border-cyan-500/30 focus:border-cyan-400"
+                    }`}
+                  />
+
+                  {/* Inline Audio Waveform Canvas overlay while speaking */}
+                  <AnimatePresence>
+                    {isListening && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute top-3 right-4 pointer-events-none flex items-center gap-2 bg-slate-950/90 px-3 py-1 rounded-xl border border-cyan-500/40 backdrop-blur-md"
+                      >
+                        <canvas
+                          ref={waveCanvasRef}
+                          width={80}
+                          height={20}
+                          className="rounded"
+                        />
+                        <span className="text-[10px] text-cyan-300 font-mono">Listening...</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
 
                 {errorMsg && (
                   <div className="text-red-400 text-xs font-mono">{errorMsg}</div>
                 )}
 
-                {/* Bottom Actions */}
+                {/* Bottom Actions Toolbar */}
                 <div className="flex items-center justify-between pt-1">
-                  <button
-                    type="button"
-                    onClick={handleSkipQuestion}
-                    disabled={submitting}
-                    className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-gray-400 hover:text-white transition flex items-center gap-1.5 text-xs"
-                  >
-                    <SkipForward className="w-3.5 h-3.5" />
-                    <span>Skip Question</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSkipQuestion}
+                      disabled={submitting}
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-gray-400 hover:text-white transition flex items-center gap-1.5 text-xs"
+                    >
+                      <SkipForward className="w-3.5 h-3.5" />
+                      <span>Skip Question</span>
+                    </button>
 
-                  <button
-                    type="submit"
-                    disabled={submitting || !answerText.trim()}
-                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold text-xs font-mono uppercase tracking-wider hover:brightness-110 disabled:opacity-40 transition shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center gap-2"
-                  >
-                    {submitting ? (
-                      <>
-                        <div className="w-3.5 h-3.5 rounded-full border-2 border-black border-t-transparent animate-spin" />
-                        <span>Evaluating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Submit Response</span>
-                        <Send className="w-3.5 h-3.5" />
-                      </>
-                    )}
-                  </button>
+                    <span className="text-gray-500 text-[11px] hidden sm:inline">
+                      Press <strong className="text-cyan-400">Ctrl+Enter</strong> or click Submit
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Primary Big Voice Mic Button */}
+                    <button
+                      type="button"
+                      onClick={toggleListening}
+                      disabled={submitting}
+                      className={`p-2.5 rounded-xl transition flex items-center justify-center ${
+                        isListening
+                          ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.8)]"
+                          : "bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                      }`}
+                      title={isListening ? "Stop Voice Input" : "Start Voice Input"}
+                    >
+                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+
+                    {/* Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={submitting || (!answerText.trim() && !interimTranscript.trim())}
+                      className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold text-xs font-mono uppercase tracking-wider hover:brightness-110 disabled:opacity-40 transition shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center gap-2"
+                    >
+                      {submitting ? (
+                        <>
+                          <div className="w-3.5 h-3.5 rounded-full border-2 border-black border-t-transparent animate-spin" />
+                          <span>Evaluating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Submit Response</span>
+                          <Send className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </>
