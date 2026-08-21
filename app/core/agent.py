@@ -71,16 +71,37 @@ async def process_turn(
         q_lower = q.lower()
         if q_lower.startswith("open ") or q_lower.startswith("launch ") or q_lower.startswith("kholo "):
             target = q_lower.replace("open ", "").replace("launch ", "").replace("kholo ", "").strip()
+            
+            # Check for secondary compound action (e.g. "open notepad and write hello")
+            sub_actions = re.split(r'\s+(?:and\s+(?:then\s+)?|aur\s+|phir\s+)', target, maxsplit=1)
+            primary_target = sub_actions[0].strip()
+            secondary_action = sub_actions[1].strip() if len(sub_actions) > 1 else None
+
             intent = "app_launch"
-            safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": target}, confidence)
+            safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": primary_target}, confidence)
             if safe and allow_actions:
-                res = launch_target(target)
+                res = launch_target(primary_target)
                 actions_executed.append(res)
-                reply_text = f"Opening {target}."
+                reply_text = f"Opening {primary_target}."
+
+                # If secondary action is typing/writing
+                if secondary_action and (secondary_action.startswith("write ") or secondary_action.startswith("type ") or secondary_action.startswith("likho ")):
+                    text_to_type = re.sub(r'^(write|type|likho)\s+', '', secondary_action, flags=re.I).strip()
+                    if text_to_type:
+                        time.sleep(0.8)  # Wait for window focus
+                        type_res = execute_gui_action("type", text=text_to_type)
+                        actions_executed.append(type_res)
+                        reply_text = f"Opened {primary_target} and entered your text."
+                elif secondary_action and (secondary_action.startswith("search ") or secondary_action.startswith("look for ") or secondary_action.startswith("searching ")):
+                    search_term = re.sub(r'^(search|searching|look for|khojo|dhundho)\s+(for\s+)?', '', secondary_action, flags=re.I).strip()
+                    if search_term:
+                        search_res = search_web(search_term)
+                        actions_executed.append(search_res)
+                        reply_text = f"Opened {primary_target} and searched for {search_term}."
             else:
                 needs_confirmation = not safe
                 confirmation_reason = reason
-                reply_text = f"Ready to open {target}. Awaiting confirmation."
+                reply_text = f"Ready to open {primary_target}. Awaiting confirmation."
         elif q_lower.startswith("play ") or q_lower.startswith("bajao ") or "on youtube" in q_lower:
             intent = "youtube"
             if allow_actions:
