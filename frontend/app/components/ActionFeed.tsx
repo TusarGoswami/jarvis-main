@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import React from "react";
 import { CheckCircle2, ShieldCheck, ShieldAlert, Cpu, Sparkles, Volume2 } from "lucide-react";
@@ -11,7 +12,8 @@ export interface MessageItem {
   language?: string;
   confidence?: number;
   intent?: string;
-  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string }>;
+  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string; message?: string; command?: string }>;
+  steps?: Array<{ step: number; thought: string; action?: string; args?: any; status: string; observation?: any }>;
   needsConfirmation?: boolean;
   confirmationReason?: string;
   citations?: string[];
@@ -112,6 +114,36 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
                 </div>
               )}
 
+              {/* Multi-Step ReAct Plan & Reasoning Trace */}
+              {msg.steps && msg.steps.length > 0 && (
+                <div className="mt-3 bg-black/60 p-3 rounded-xl border border-cyan-500/20 flex flex-col gap-2 text-xs font-mono">
+                  <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-cyan-400" /> Multi-Step Autonomous ReAct Plan:
+                  </span>
+                  <div className="space-y-2 border-l border-cyan-900/60 pl-3 ml-1">
+                    {msg.steps.map((st, i) => (
+                      <div key={i} className="flex flex-col gap-1 text-[11px]">
+                        <div className="text-white/80 italic font-sans">
+                          💭 {st.thought}
+                        </div>
+                        {st.action && (
+                          <div className="flex items-center gap-2 text-cyan-300">
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-800 text-[10px] text-cyan-200">
+                              ⚡ Tool: {st.action}
+                            </span>
+                            {st.status === "completed" && (
+                              <span className="text-emerald-400 flex items-center gap-1 text-[10px]">
+                                <CheckCircle2 className="w-3 h-3" /> Verified
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Actions Executed Summary */}
               {msg.actionsExecuted && msg.actionsExecuted.length > 0 && (
                 <div className="mt-2.5 bg-slate-950/80 p-2 rounded-xl border border-cyan-900/50 flex flex-col gap-1 text-xs font-mono">
@@ -121,7 +153,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
                   {msg.actionsExecuted.map((act, i) => (
                     <div key={i} className="flex items-center gap-1.5 text-cyan-300">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{act.action}: <strong>{act.target || act.query || "Done"}</strong></span>
+                      <span>{act.action}: <strong>{act.target || act.query || act.command || act.message || "Success"}</strong></span>
                     </div>
                   ))}
                 </div>

@@ -6,8 +6,9 @@ import { ArcReactor } from "./components/ArcReactor";
 import { TelemetryPanel, SystemStats } from "./components/TelemetryPanel";
 import { MultimodalBar } from "./components/MultimodalBar";
 import { ActionFeed, MessageItem } from "./components/ActionFeed";
+import { WorkspaceExplorer } from "./components/WorkspaceExplorer";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
-import { Terminal, Shield, Activity, Award, Volume2, VolumeX, Eye } from "lucide-react";
+import { Terminal, Shield, Activity, Award, Volume2, VolumeX, Folder } from "lucide-react";
 
 export default function VocalisHome() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -271,7 +272,7 @@ export default function VocalisHome() {
             className="px-3 py-1.5 rounded-xl bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/50 flex items-center gap-1.5 transition shadow-[0_0_15px_rgba(0,240,255,0.2)]"
           >
             <Award className="w-4 h-4 text-cyan-400" />
-            <span>Eval Harness (20 Tests)</span>
+            <span>Eval Harness (30 Tests)</span>
           </button>
 
           <button
@@ -299,9 +300,10 @@ export default function VocalisHome() {
 
       {/* Main Grid Layout */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Telemetry & Status (4 cols) */}
+        {/* Left Column: Telemetry & Workspace Artifacts (4 cols) */}
         <div className="lg:col-span-4 flex flex-col gap-5">
           <TelemetryPanel stats={stats} />
+          <WorkspaceExplorer />
 
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-2.5 font-mono text-xs">
             <span className="text-gray-400 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
@@ -309,15 +311,23 @@ export default function VocalisHome() {
             </span>
             <div className="flex flex-col gap-1 text-[11px] text-gray-300">
               <div className="flex items-center justify-between py-1 border-b border-slate-800">
+                <span>Autonomous ReAct</span>
+                <strong className="text-emerald-400">Active (Multi-Tool)</strong>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-slate-800">
+                <span>Sandboxed File &amp; Shell</span>
+                <strong className="text-cyan-400">./workspace</strong>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-slate-800">
                 <span>Multi-Lingual STT/TTS</span>
                 <strong className="text-emerald-400">EN, HI, BN</strong>
               </div>
               <div className="flex items-center justify-between py-1 border-b border-slate-800">
                 <span>Vision Screen Analysis</span>
-                <strong className="text-cyan-400">Gemini 2.0 Flash</strong>
+                <strong className="text-cyan-400">Gemini 2.5 Flash</strong>
               </div>
               <div className="flex items-center justify-between py-1 border-b border-slate-800">
-                <span>Tool Safety Guardrails</span>
+                <span>Safety Guardrails</span>
                 <strong className="text-cyan-400">Active (70% Gate)</strong>
               </div>
               <div className="flex items-center justify-between py-1">
