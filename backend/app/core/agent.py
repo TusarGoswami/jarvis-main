@@ -1,5 +1,6 @@
 import time
 import os
+import re
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from google import genai
@@ -7,7 +8,8 @@ from google.genai import types
 
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
-from app.core.tools import launch_target, search_web, play_youtube, get_system_stats
+from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action
+from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
 
@@ -17,6 +19,7 @@ class AgentResponse(BaseModel):
     confidence: float
     intent: str
     actions_executed: List[Dict[str, Any]]
+    steps: List[Dict[str, Any]] = []
     needs_confirmation: bool = False
     confirmation_reason: Optional[str] = None
     citations: List[str] = []
@@ -28,7 +31,14 @@ VOCALIS_PERSONA = (
     "You are intelligent, concise, highly capable, and sleek in tone. "
     "Address the user politely (or as Sir/Ma'am if appropriate). "
     "Keep voice responses natural and crisp (2-3 sentences max). "
-    "When a user asks about what is on their screen or camera, analyze the provided visual frame in detail."
+    "When a user asks about what is on their screen or camera, analyze the provided visual frame in detail. "
+    "You can execute GUI actions to click, type, press hotkeys, or scroll based on visual grounding. "
+    "If you need to perform an action on the screen, append a special tag at the very end of your response: "
+    "For clicking: '[GUI_ACTION: click, x, y]' (estimate absolute pixel coordinates based on standard 1920x1080 display). "
+    "For typing text: '[GUI_ACTION: type, text_to_type]'. "
+    "For key combinations: '[GUI_ACTION: hotkey, key1, key2]'. "
+    "For scrolling: '[GUI_ACTION: scroll, amount]' (positive for up, negative for down). "
+    "Only output ONE action per turn."
 )
 
 _client = None
@@ -63,16 +73,37 @@ async def process_turn(
         q_lower = q.lower()
         if q_lower.startswith("open ") or q_lower.startswith("launch ") or q_lower.startswith("kholo "):
             target = q_lower.replace("open ", "").replace("launch ", "").replace("kholo ", "").strip()
+            
+            # Check for secondary compound action (e.g. "open notepad and write hello")
+            sub_actions = re.split(r'\s+(?:and\s+(?:then\s+)?|aur\s+|phir\s+)', target, maxsplit=1)
+            primary_target = sub_actions[0].strip()
+            secondary_action = sub_actions[1].strip() if len(sub_actions) > 1 else None
+
             intent = "app_launch"
-            safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": target}, confidence)
+            safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": primary_target}, confidence)
             if safe and allow_actions:
-                res = launch_target(target)
+                res = launch_target(primary_target)
                 actions_executed.append(res)
-                reply_text = f"Opening {target}."
+                reply_text = f"Opening {primary_target}."
+
+                # If secondary action is typing/writing
+                if secondary_action and (secondary_action.startswith("write ") or secondary_action.startswith("type ") or secondary_action.startswith("likho ")):
+                    text_to_type = re.sub(r'^(write|type|likho)\s+', '', secondary_action, flags=re.I).strip()
+                    if text_to_type:
+                        time.sleep(0.8)  # Wait for window focus
+                        type_res = execute_gui_action("type", text=text_to_type)
+                        actions_executed.append(type_res)
+                        reply_text = f"Opened {primary_target} and entered your text."
+                elif secondary_action and (secondary_action.startswith("search ") or secondary_action.startswith("look for ") or secondary_action.startswith("searching ")):
+                    search_term = re.sub(r'^(search|searching|look for|khojo|dhundho)\s+(for\s+)?', '', secondary_action, flags=re.I).strip()
+                    if search_term:
+                        search_res = search_web(search_term)
+                        actions_executed.append(search_res)
+                        reply_text = f"Opened {primary_target} and searched for {search_term}."
             else:
                 needs_confirmation = not safe
                 confirmation_reason = reason
-                reply_text = f"Ready to open {target}. Awaiting confirmation."
+                reply_text = f"Ready to open {primary_target}. Awaiting confirmation."
         elif q_lower.startswith("play ") or q_lower.startswith("bajao ") or "on youtube" in q_lower:
             intent = "youtube"
             if allow_actions:
@@ -117,6 +148,34 @@ async def process_turn(
         )
         citations = [d['title'] for d in rag_docs]
 
+    # Check if query requests multi-step / tool tasks
+    is_agentic_task = any(w in q.lower() for w in [
+        "file", "script", "create", "write", "read", "delete", "edit",
+        "terminal", "run", "code", "search", "scrape", "directory", "list", "test", "folder"
+    ])
+
+    if is_agentic_task and allow_actions and settings.GEMINI_API_KEY:
+        react_res = await run_react_loop(
+            user_query=q,
+            image_bytes=image_bytes,
+            client_lang=target_lang,
+            allow_actions=allow_actions
+        )
+        latency = max(0.1, round((time.time() - start_time) * 1000, 2))
+        return AgentResponse(
+            reply_text=react_res.final_text,
+            language=target_lang,
+            confidence=0.98 if react_res.success else 0.60,
+            intent="react_orchestrator",
+            actions_executed=react_res.actions_executed,
+            steps=react_res.steps,
+            needs_confirmation=react_res.needs_confirmation,
+            confirmation_reason=react_res.confirmation_reason,
+            citations=citations,
+            latency_ms=latency,
+            token_usage={"prompt_tokens": len(react_res.steps) * 150, "response_tokens": 100}
+        )
+
     # Multimodal / LLM processing
     genai_client = get_genai_client()
     if genai_client is None:
@@ -154,6 +213,33 @@ async def process_turn(
         
         reply_text = response.text or "I processed your request."
         confidence = 0.96
+
+        # Parse GUI actions from response
+        action_match = re.search(r'\[GUI_ACTION:\s*([^\]]+)\]', reply_text)
+        if action_match and allow_actions:
+            action_parts = [p.strip() for p in action_match.group(1).split(",")]
+            if action_parts:
+                action_type = action_parts[0]
+                if action_type == "click" and len(action_parts) >= 3:
+                    try:
+                        x = int(action_parts[1])
+                        y = int(action_parts[2])
+                        res = execute_gui_action("click", x=x, y=y)
+                        actions_executed.append(res)
+                    except ValueError:
+                        pass
+                elif action_type == "type" and len(action_parts) >= 2:
+                    text_val = action_parts[1]
+                    res = execute_gui_action("type", text=text_val)
+                    actions_executed.append(res)
+                elif action_type == "hotkey" and len(action_parts) >= 2:
+                    keys = action_parts[1:]
+                    res = execute_gui_action("hotkey", keys=keys)
+                    actions_executed.append(res)
+                elif action_type == "scroll" and len(action_parts) >= 2:
+                    amt = action_parts[1]
+                    res = execute_gui_action("scroll", text=amt)
+                    actions_executed.append(res)
 
     except Exception as e:
         reply_text = f"An issue occurred while consulting the intelligence engine: {str(e)}"

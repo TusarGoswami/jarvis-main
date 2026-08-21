@@ -56,20 +56,13 @@ export default function VocalisHome() {
     [effectiveState, effectiveAmplitude, isWsConnected, devOverride]
   );
 
-  // ─── Track unread messages when drawer is closed ───
-  const prevMessageCount = useRef(0);
-  useEffect(() => {
-    if (messages.length > prevMessageCount.current && !isDrawerOpen) {
-      const newCount = messages.length - prevMessageCount.current;
-      setUnreadCount((c) => c + newCount);
-    }
-    prevMessageCount.current = messages.length;
-  }, [messages.length, isDrawerOpen]);
-
-  // Clear unread when drawer opens
-  useEffect(() => {
-    if (isDrawerOpen) setUnreadCount(0);
-  }, [isDrawerOpen]);
+  const handleDrawerToggle = () => {
+    setIsDrawerOpen((prev) => {
+      const next = !prev;
+      if (next) setUnreadCount(0);
+      return next;
+    });
+  };
 
   // ─── WebSocket Connection (preserved from original) ───
   useEffect(() => {
@@ -89,8 +82,9 @@ export default function VocalisHome() {
             if (data.type === "handshake" || data.type === "pong") {
               if (data.stats) setStats(data.stats);
             } else if (data.type === "status") {
-              // Map "processing" to "thinking" in the new 5-state system
+              // Map "processing" to "thinking" in the 5-state system
               if (data.state === "processing") setRawState("thinking");
+              if (data.state === "tool_use") setRawState("tool_use");
             } else if (data.type === "turn_result") {
               const res = data.data;
               setRawState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
@@ -104,6 +98,7 @@ export default function VocalisHome() {
                 confidence: res.confidence,
                 intent: res.intent,
                 actionsExecuted: res.actions_executed,
+                steps: res.steps,
                 needsConfirmation: res.needs_confirmation,
                 confirmationReason: res.confirmation_reason,
                 citations: res.citations,
@@ -137,7 +132,7 @@ export default function VocalisHome() {
 
     connect();
 
-    // Fetch initial system telemetry via REST (preserved from original)
+    // Fetch initial system telemetry via REST
     const fetchStats = async () => {
       try {
         const res = await fetch("http://127.0.0.1:8005/api/system/stats");
@@ -224,7 +219,7 @@ export default function VocalisHome() {
         })
       );
     } else {
-      // Fallback REST endpoint (preserved from original)
+      // Fallback REST endpoint
       try {
         const res = await fetch("http://127.0.0.1:8005/api/agent/command", {
           method: "POST",
@@ -247,6 +242,7 @@ export default function VocalisHome() {
           confidence: resData.confidence,
           intent: resData.intent,
           actionsExecuted: resData.actions_executed,
+          steps: resData.steps,
           needsConfirmation: resData.needs_confirmation,
           confirmationReason: resData.confirmation_reason,
           citations: resData.citations,
@@ -295,12 +291,12 @@ export default function VocalisHome() {
     }
   };
 
-  // ─── "Spotlight" behavior: dim side elements when not idle ───
+  // ─── "Spotlight" behavior: dim side elements when active ───
   const isActive = effectiveState !== "idle";
 
   return (
     <AssistantContext.Provider value={contextValue}>
-      <main className="min-h-screen bg-[#030712] text-gray-100 relative overflow-hidden">
+      <main className="min-h-screen bg-[#030712] text-gray-100 relative overflow-hidden flex flex-col justify-between">
         {/* Animated particle background */}
         <ParticleBackground />
 
@@ -313,17 +309,17 @@ export default function VocalisHome() {
           onOpenEvals={() => setIsEvalOpen(true)}
         />
 
-        {/* ─── Central Avatar Stage ─── */}
-        <div className="relative z-10 flex flex-col items-center justify-center min-h-screen pt-12 pb-28">
+        {/* ─── Central Avatar Stage (Dominant Central Viewport) ─── */}
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center pt-16 pb-28 px-4">
           {/* Avatar + Ring container */}
           <motion.div
             className="relative flex items-center justify-center"
             style={{
-              width: "clamp(340px, 45vw, 520px)",
-              height: "clamp(340px, 45vw, 520px)",
+              width: "clamp(320px, 42vw, 500px)",
+              height: "clamp(320px, 42vw, 500px)",
             }}
             animate={{
-              scale: isActive ? 1.02 : 1,
+              scale: isActive ? 1.03 : 1,
             }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
@@ -336,19 +332,19 @@ export default function VocalisHome() {
             </div>
           </motion.div>
 
-          {/* Subtle ambient text */}
+          {/* Ambient state text */}
           <motion.p
-            className="mt-6 text-gray-500 text-sm font-mono tracking-wide text-center"
+            className="mt-6 text-gray-400 text-sm font-mono tracking-wide text-center"
             animate={{
-              opacity: isActive ? 0.3 : 0.7,
+              opacity: isActive ? 0.4 : 0.8,
             }}
             transition={{ duration: 0.5 }}
           >
-            {effectiveState === "idle" && "Say something or type a command..."}
-            {effectiveState === "listening" && "I'm listening..."}
-            {effectiveState === "thinking" && "Processing your request..."}
-            {effectiveState === "speaking" && ""}
-            {effectiveState === "tool_use" && "Executing actions..."}
+            {effectiveState === "idle" && "Speak or type to command Vocalis AI..."}
+            {effectiveState === "listening" && "Listening to your voice..."}
+            {effectiveState === "thinking" && "Reasoning & executing plan..."}
+            {effectiveState === "speaking" && "Responding..."}
+            {effectiveState === "tool_use" && "Autonomous tool execution active..."}
           </motion.p>
         </div>
 
@@ -356,13 +352,13 @@ export default function VocalisHome() {
         <VoiceInputBar
           onSendQuery={handleSendQuery}
           onToggleListening={toggleListening}
-          isLoading={effectiveState === "thinking"}
+          isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
         />
 
-        {/* Activity drawer (slide-in from right) */}
+        {/* Activity & Workspace drawer (slide-in from right) */}
         <ActivityDrawer
           isOpen={isDrawerOpen}
-          onToggle={() => setIsDrawerOpen(!isDrawerOpen)}
+          onToggle={handleDrawerToggle}
           messages={messages}
           onConfirmAction={handleConfirmAction}
           onCancelAction={handleCancelAction}
@@ -370,10 +366,10 @@ export default function VocalisHome() {
           unreadCount={unreadCount}
         />
 
-        {/* Dev state toggle (bottom-left, for testing) */}
+        {/* Dev state toggle (bottom-left, for interactive testing) */}
         <DevStateToggle />
 
-        {/* Eval benchmark modal (preserved from original) */}
+        {/* Eval benchmark modal */}
         <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />
       </main>
     </AssistantContext.Provider>

@@ -12,7 +12,8 @@ export interface MessageItem {
   language?: string;
   confidence?: number;
   intent?: string;
-  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string }>;
+  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string; message?: string; command?: string }>;
+  steps?: Array<{ step: number; thought: string; action?: string; args?: Record<string, unknown>; status: string; observation?: unknown }>;
   needsConfirmation?: boolean;
   confirmationReason?: string;
   citations?: string[];

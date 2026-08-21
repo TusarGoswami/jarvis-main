@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Activity, MessageSquare } from "lucide-react";
+import { X, Activity, MessageSquare, Folder } from "lucide-react";
 import { ActionFeed } from "./ActionFeed";
+import { WorkspaceExplorer } from "./WorkspaceExplorer";
 import type { MessageItem } from "./types";
 
 interface ActivityDrawerProps {
@@ -17,7 +18,7 @@ interface ActivityDrawerProps {
 }
 
 /**
- * ActivityDrawer — Slide-in right panel for chat/action history.
+ * ActivityDrawer — Slide-in right panel for chat, action history, and workspace files.
  * Collapsed by default in voice-first mode. Toggle button sits at right edge.
  */
 export const ActivityDrawer: React.FC<ActivityDrawerProps> = ({
@@ -29,24 +30,25 @@ export const ActivityDrawer: React.FC<ActivityDrawerProps> = ({
   onPlayAudio,
   unreadCount,
 }) => {
+  const [activeTab, setActiveTab] = useState<"stream" | "workspace">("stream");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (isOpen && scrollRef.current) {
+    if (isOpen && activeTab === "stream" && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length, isOpen]);
+  }, [messages.length, isOpen, activeTab]);
 
   return (
     <>
       {/* Toggle button — fixed at right edge */}
       <motion.button
         onClick={onToggle}
-        className="fixed right-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-xl glass-panel-glow text-cyan-300 hover:text-cyan-100 transition-colors"
+        className="fixed right-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-xl glass-panel-glow text-cyan-300 hover:text-cyan-100 transition-colors shadow-[0_0_20px_rgba(0,240,255,0.2)]"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        title="Toggle activity stream"
+        title="Toggle activity & workspace drawer"
       >
         <MessageSquare className="w-5 h-5" />
         {unreadCount > 0 && !isOpen && (
@@ -70,7 +72,7 @@ export const ActivityDrawer: React.FC<ActivityDrawerProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={onToggle}
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-30"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30"
             />
 
             {/* Panel */}
@@ -79,14 +81,36 @@ export const ActivityDrawer: React.FC<ActivityDrawerProps> = ({
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed right-0 top-0 bottom-0 w-[380px] max-w-[90vw] z-40 flex flex-col glass-panel border-l border-cyan-500/20"
+              className="fixed right-0 top-0 bottom-0 w-[440px] max-w-[92vw] z-40 flex flex-col glass-panel border-l border-cyan-500/20 shadow-[0_0_50px_rgba(0,0,0,0.8)]"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-cyan-500/20">
-                <span className="font-mono text-xs uppercase tracking-widest text-cyan-400 flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
-                  Activity Stream
-                </span>
+              {/* Header with Tabs */}
+              <div className="flex items-center justify-between p-3.5 border-b border-cyan-500/20">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab("stream")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                      activeTab === "stream"
+                        ? "bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>Activity Stream</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("workspace")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                      activeTab === "workspace"
+                        ? "bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>Workspace</span>
+                  </button>
+                </div>
+
                 <button
                   onClick={onToggle}
                   className="p-1.5 rounded-lg hover:bg-slate-800 text-gray-400 hover:text-white transition"
@@ -95,14 +119,18 @@ export const ActivityDrawer: React.FC<ActivityDrawerProps> = ({
                 </button>
               </div>
 
-              {/* Messages */}
-              <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-                <ActionFeed
-                  messages={messages}
-                  onConfirmAction={onConfirmAction}
-                  onCancelAction={onCancelAction}
-                  onPlayAudio={onPlayAudio}
-                />
+              {/* Content body */}
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col" ref={scrollRef}>
+                {activeTab === "stream" ? (
+                  <ActionFeed
+                    messages={messages}
+                    onConfirmAction={onConfirmAction}
+                    onCancelAction={onCancelAction}
+                    onPlayAudio={onPlayAudio}
+                  />
+                ) : (
+                  <WorkspaceExplorer />
+                )}
               </div>
 
               {/* Footer info */}

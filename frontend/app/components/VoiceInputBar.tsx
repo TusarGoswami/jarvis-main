@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, ScreenShare, Languages, Sparkles, ChevronUp } from "lucide-react";
+import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp } from "lucide-react";
 import { useAssistantState } from "../hooks/useAssistantState";
 import { STATE_CONFIG } from "./types";
 

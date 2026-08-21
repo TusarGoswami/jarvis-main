@@ -115,7 +115,94 @@ async def test_19_agent_multilingual_response_routing():
 
 @pytest.mark.asyncio
 async def test_20_agent_offline_graceful_degradation():
-    # Without real GEMINI key or in test mode, agent gracefully degrades without crashing
     res = await process_turn("What is the capital of France?", allow_actions=False)
     assert res.reply_text is not None
     assert res.confidence > 0
+
+# ==================== ADVANCED AGENT & TOOL EVALUATIONS ====================
+
+from app.core.fs_tools import fs_write, fs_read, fs_edit, fs_list, fs_delete, _resolve_safe_path
+from app.core.terminal_tool import execute_terminal_command
+from app.core.tools_registry import execute_tool, get_tools_prompt_description
+from app.core.task_manager import task_manager, TaskState
+
+@pytest.mark.asyncio
+async def test_21_sandboxed_fs_write_and_read():
+    write_res = fs_write("test_agent.txt", "Line 1: Hello Vocalis\nLine 2: Agentic OS")
+    assert write_res["status"] == "success"
+    assert write_res["bytes_written"] > 0
+
+    read_res = fs_read("test_agent.txt")
+    assert read_res["status"] == "success"
+    assert "Hello Vocalis" in read_res["content"]
+    assert read_res["lines"] == 2
+
+@pytest.mark.asyncio
+async def test_22_sandboxed_fs_edit():
+    edit_res = fs_edit("test_agent.txt", "Hello Vocalis", "Hello Autonomous Agent")
+    assert edit_res["status"] == "success"
+
+    read_res = fs_read("test_agent.txt")
+    assert "Hello Autonomous Agent" in read_res["content"]
+
+@pytest.mark.asyncio
+async def test_23_sandboxed_fs_list():
+    list_res = fs_list(".")
+    assert list_res["status"] == "success"
+    assert any(e["name"] == "test_agent.txt" for e in list_res["entries"])
+
+@pytest.mark.asyncio
+async def test_24_sandboxed_fs_delete():
+    del_res = fs_delete("test_agent.txt")
+    assert del_res["status"] == "success"
+
+    read_res = fs_read("test_agent.txt")
+    assert read_res["status"] == "error"
+
+@pytest.mark.asyncio
+async def test_25_sandboxed_fs_path_traversal_protection():
+    with pytest.raises(PermissionError) as exc_info:
+        _resolve_safe_path("../../windows/system32/cmd.exe")
+    assert "Security sandbox violation" in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_26_sandboxed_terminal_execution():
+    cmd_res = execute_terminal_command("python -c \"print('Vocalis Test Exec')\"")
+    assert cmd_res["status"] == "success"
+    assert "Vocalis Test Exec" in cmd_res["stdout"]
+    assert cmd_res["returncode"] == 0
+
+@pytest.mark.asyncio
+async def test_27_sandboxed_terminal_blocked_commands():
+    cmd_res = execute_terminal_command("format C:")
+    assert cmd_res["status"] == "error"
+    assert "Security restriction" in cmd_res["message"]
+
+@pytest.mark.asyncio
+async def test_28_tool_registry_dispatch():
+    res = await execute_tool("fs_write", {"filepath": "registry_test.txt", "content": "Registry Active"})
+    assert res["status"] == "success"
+    
+    del_res = await execute_tool("fs_delete", {"filepath": "registry_test.txt"})
+    assert del_res["status"] == "success"
+
+@pytest.mark.asyncio
+async def test_29_task_manager_state_lifecycle():
+    task = task_manager.create_task("Analyze test project")
+    assert task.state == TaskState.RECEIVED
+
+    task_manager.update_state(task.task_id, TaskState.PLANNING)
+    assert task_manager.get_task(task.task_id).state == TaskState.PLANNING
+
+    task_manager.complete_task(task.task_id, "Task successfully accomplished.", [{"tool": "fs_read"}])
+    assert task_manager.get_task(task.task_id).state == TaskState.COMPLETED
+    assert len(task_manager.get_task(task.task_id).actions) == 1
+
+@pytest.mark.asyncio
+async def test_30_react_system_prompt_generation():
+    desc = get_tools_prompt_description()
+    assert "fs_read" in desc
+    assert "fs_write" in desc
+    assert "terminal_exec" in desc
+    assert "web_search" in desc
+
