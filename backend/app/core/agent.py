@@ -9,6 +9,7 @@ from google.genai import types
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
 from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action
+from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
 
@@ -18,6 +19,7 @@ class AgentResponse(BaseModel):
     confidence: float
     intent: str
     actions_executed: List[Dict[str, Any]]
+    steps: List[Dict[str, Any]] = []
     needs_confirmation: bool = False
     confirmation_reason: Optional[str] = None
     citations: List[str] = []
@@ -145,6 +147,34 @@ async def process_turn(
             [f"- [{d['title']}]: {d['content']}" for d in rag_docs]
         )
         citations = [d['title'] for d in rag_docs]
+
+    # Check if query requests multi-step / tool tasks
+    is_agentic_task = any(w in q.lower() for w in [
+        "file", "script", "create", "write", "read", "delete", "edit",
+        "terminal", "run", "code", "search", "scrape", "directory", "list", "test", "folder"
+    ])
+
+    if is_agentic_task and allow_actions and settings.GEMINI_API_KEY:
+        react_res = await run_react_loop(
+            user_query=q,
+            image_bytes=image_bytes,
+            client_lang=target_lang,
+            allow_actions=allow_actions
+        )
+        latency = max(0.1, round((time.time() - start_time) * 1000, 2))
+        return AgentResponse(
+            reply_text=react_res.final_text,
+            language=target_lang,
+            confidence=0.98 if react_res.success else 0.60,
+            intent="react_orchestrator",
+            actions_executed=react_res.actions_executed,
+            steps=react_res.steps,
+            needs_confirmation=react_res.needs_confirmation,
+            confirmation_reason=react_res.confirmation_reason,
+            citations=citations,
+            latency_ms=latency,
+            token_usage={"prompt_tokens": len(react_res.steps) * 150, "response_tokens": 100}
+        )
 
     # Multimodal / LLM processing
     genai_client = get_genai_client()

@@ -9,6 +9,7 @@ def start():
     print("=" * 60)
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
+    backend_dir = os.path.join(base_dir, "backend")
     frontend_dir = os.path.join(base_dir, "frontend")
 
     # Clean port bindings to avoid Address Already In Use / lock conflicts
@@ -32,10 +33,10 @@ def start():
     # Auto-detect virtual environment python executable
     python_exe = sys.executable
     venv_candidates = [
+        os.path.join(backend_dir, ".venv", "Scripts", "python.exe"),
         os.path.join(base_dir, ".venv", "Scripts", "python.exe"),
-        os.path.join(base_dir, ".venv", "bin", "python"),
+        os.path.join(backend_dir, "venv", "Scripts", "python.exe"),
         os.path.join(base_dir, "venv", "Scripts", "python.exe"),
-        os.path.join(base_dir, "venv", "bin", "python"),
     ]
     for candidate in venv_candidates:
         if os.path.exists(candidate):
@@ -50,7 +51,7 @@ def start():
             "--host", "127.0.0.1", "--port", "8005", "--reload",
             "--reload-dir", "app"
         ],
-        cwd=base_dir
+        cwd=backend_dir
     )
 
     time.sleep(2)

@@ -3,8 +3,12 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from engine.vault import decrypt_key
 
-# Load .env file
-load_dotenv()
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT_DIR = os.path.dirname(_BASE_DIR)
+
+# Load .env file from backend or root
+load_dotenv(os.path.join(_BASE_DIR, ".env"))
+load_dotenv(os.path.join(_ROOT_DIR, ".env"))
 
 class Settings(BaseModel):
     ASSISTANT_NAME: str = "Vocalis AI"
@@ -12,6 +16,7 @@ class Settings(BaseModel):
     HOST: str = "127.0.0.1"
     PORT: int = 8005
     DEBUG: bool = True
+    WORKSPACE_DIR: str = os.path.join(_BASE_DIR, "workspace")
     
     # Model configuration
     GEMINI_MODEL: str = "gemini-2.5-flash"
