@@ -13,12 +13,14 @@ import {
 } from "lucide-react";
 
 interface PreInterviewAnalysisProps {
+  interviewId?: string;
   resumeData: any;
   jdData: any;
   domain: string;
   experienceLevel: string;
   programmingLanguage: string;
   onReset: () => void;
+  onStartInterview?: (id: string) => void;
 }
 
 const INIT_STEPS = [
@@ -32,12 +34,14 @@ const INIT_STEPS = [
 ];
 
 export const PreInterviewAnalysis: React.FC<PreInterviewAnalysisProps> = ({
+  interviewId,
   resumeData,
   jdData,
   domain,
   experienceLevel,
   programmingLanguage,
   onReset,
+  onStartInterview,
 }) => {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [isDone, setIsDone] = useState(false);
@@ -179,10 +183,14 @@ export const PreInterviewAnalysis: React.FC<PreInterviewAnalysisProps> = ({
             </button>
 
             <button
-              onClick={() => alert("Phase 1 Complete! Interactive question generation and live interview engine are ready for Phase 2 implementation.")}
+              onClick={() => {
+                if (onStartInterview && interviewId) {
+                  onStartInterview(interviewId);
+                }
+              }}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold text-xs hover:brightness-110 transition shadow-[0_0_20px_rgba(0,240,255,0.4)] flex items-center gap-2"
             >
-              <span>Begin Assessment (Phase 2 Ready)</span>
+              <span>Begin Technical Assessment</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
