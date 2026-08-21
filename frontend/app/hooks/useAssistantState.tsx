@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import React, { createContext, useContext } from "react";
 import type { AssistantState } from "../components/types";
 
 export interface AssistantContextValue {
@@ -24,6 +24,17 @@ const defaultValue: AssistantContextValue = {
 };
 
 export const AssistantContext = createContext<AssistantContextValue>(defaultValue);
+
+export const AssistantStateProvider: React.FC<{
+  value: AssistantContextValue;
+  children: React.ReactNode;
+}> = ({ value, children }) => {
+  return (
+    <AssistantContext.Provider value={value}>
+      {children}
+    </AssistantContext.Provider>
+  );
+};
 
 export function useAssistantState() {
   return useContext(AssistantContext);
