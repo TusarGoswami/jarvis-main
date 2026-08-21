@@ -13,7 +13,7 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS web_command(id integer primary key, name VARCHAR(100), url VARCHAR(1000))")
     cursor.execute("CREATE TABLE IF NOT EXISTS contacts(id integer primary key, name VARCHAR(200), mobile_no VARCHAR(255), email VARCHAR(255) NULL)")
     
-    # Interview Mode Sessions (Phase 1 & Phase 2)
+    # Interview Mode Sessions (Phase 1, 2, 3 & Integrity Evaluation)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS interview_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,10 @@ def init_db():
         difficulty TEXT DEFAULT 'medium',
         start_time REAL DEFAULT NULL,
         duration_seconds INTEGER DEFAULT 3600,
-        activity_log TEXT DEFAULT '[]'
+        activity_log TEXT DEFAULT '[]',
+        integrity_events TEXT DEFAULT '[]',
+        integrity_score REAL DEFAULT 10.0,
+        final_evaluation TEXT DEFAULT NULL
     )
     """)
     con.commit()
@@ -48,7 +51,10 @@ def init_db():
         "difficulty": "TEXT DEFAULT 'medium'",
         "start_time": "REAL DEFAULT NULL",
         "duration_seconds": "INTEGER DEFAULT 3600",
-        "activity_log": "TEXT DEFAULT '[]'"
+        "activity_log": "TEXT DEFAULT '[]'",
+        "integrity_events": "TEXT DEFAULT '[]'",
+        "integrity_score": "REAL DEFAULT 10.0",
+        "final_evaluation": "TEXT DEFAULT NULL"
     }
     
     for col_name, col_def in new_cols.items():
@@ -104,7 +110,10 @@ def update_interview_state(
     difficulty: Optional[str] = None,
     start_time: Optional[float] = None,
     status: Optional[str] = None,
-    activity_log: Optional[List[Dict[str, Any]]] = None
+    activity_log: Optional[List[Dict[str, Any]]] = None,
+    integrity_events: Optional[List[Dict[str, Any]]] = None,
+    integrity_score: Optional[float] = None,
+    final_evaluation: Optional[Dict[str, Any]] = None
 ) -> bool:
     try:
         con = sqlite3.connect(DB_PATH)
@@ -134,6 +143,15 @@ def update_interview_state(
         if activity_log is not None:
             updates.append("activity_log = ?")
             params.append(json.dumps(activity_log))
+        if integrity_events is not None:
+            updates.append("integrity_events = ?")
+            params.append(json.dumps(integrity_events))
+        if integrity_score is not None:
+            updates.append("integrity_score = ?")
+            params.append(integrity_score)
+        if final_evaluation is not None:
+            updates.append("final_evaluation = ?")
+            params.append(json.dumps(final_evaluation))
             
         if not updates:
             con.close()
@@ -149,6 +167,66 @@ def update_interview_state(
         print(f"[DB] Error updating interview state: {e}")
         return False
 
+def log_integrity_event(
+    interview_id: str,
+    event_type: str,
+    duration_seconds: float = 0,
+    details: str = ""
+) -> Dict[str, Any]:
+    """
+    Appends an integrity event to session and recalculates integrity score.
+    """
+    try:
+        session = get_interview_session(interview_id)
+        if not session:
+            return {"status": "error", "message": "Session not found"}
+
+        events = session.get("integrity_events", [])
+        now_str = time.strftime("%H:%M:%S")
+        
+        event_entry = {
+            "id": f"INT-EVT-{len(events) + 1}",
+            "timestamp": now_str,
+            "event_type": event_type,
+            "duration_seconds": round(duration_seconds, 1),
+            "details": details or f"{event_type} detected ({round(duration_seconds, 1)}s)"
+        }
+        events.append(event_entry)
+
+        # Integrity scoring calculation (starts at 10.0, deducts based on severity/duration)
+        tab_switches = sum(1 for e in events if "tab" in e["event_type"].lower() or "focus" in e["event_type"].lower())
+        fullscreen_exits = sum(1 for e in events if "fullscreen" in e["event_type"].lower())
+        total_time_away = sum(e.get("duration_seconds", 0) for e in events)
+
+        # Gradual penalty formula (never drops below 1.0)
+        penalty = (tab_switches * 0.75) + (fullscreen_exits * 1.0) + (total_time_away * 0.05)
+        new_integrity_score = max(1.0, round(10.0 - penalty, 1))
+
+        # Also log to activity stream
+        activity_log = session.get("activity_log", [])
+        activity_log.append({
+            "timestamp": now_str,
+            "event": f"Integrity Event: {event_type}",
+            "details": f"Duration: {round(duration_seconds, 1)}s | Integrity: {new_integrity_score}/10"
+        })
+
+        update_interview_state(
+            interview_id=interview_id,
+            integrity_events=events,
+            integrity_score=new_integrity_score,
+            activity_log=activity_log
+        )
+
+        return {
+            "status": "success",
+            "event": event_entry,
+            "integrity_score": new_integrity_score,
+            "total_events": len(events)
+        }
+    except Exception as e:
+        print(f"[DB] Error logging integrity event: {e}")
+        return {"status": "error", "message": str(e)}
+
 def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
     try:
         con = sqlite3.connect(DB_PATH)
@@ -158,7 +236,8 @@ def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
             interview_id, created_at, resume_data, job_description_data, 
             domain, experience_level, programming_language, status,
             current_phase, current_question, questions_history, difficulty,
-            start_time, duration_seconds, activity_log
+            start_time, duration_seconds, activity_log, integrity_events,
+            integrity_score, final_evaluation
         FROM interview_sessions WHERE interview_id = ?
         """, (interview_id,))
         row = cursor.fetchone()
@@ -189,7 +268,10 @@ def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
                 "start_time": start_t,
                 "duration_seconds": dur_sec,
                 "time_remaining": time_remaining,
-                "activity_log": json.loads(row[14]) if row[14] else []
+                "activity_log": json.loads(row[14]) if row[14] else [],
+                "integrity_events": json.loads(row[15]) if row[15] else [],
+                "integrity_score": row[16] if row[16] is not None else 10.0,
+                "final_evaluation": json.loads(row[17]) if row[17] else None
             }
         return None
     except Exception as e:
