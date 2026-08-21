@@ -82,6 +82,8 @@ async def websocket_stream(websocket: WebSocket):
         pass
     except Exception as e:
         try:
-            await websocket.send_json({"type": "error", "message": str(e)})
+            from app.core.sanitizer import sanitize_text
+            await websocket.send_json({"type": "error", "message": sanitize_text(str(e))})
         except Exception:
             pass
+
