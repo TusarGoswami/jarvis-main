@@ -39,7 +39,7 @@ class Settings(BaseModel):
         if k1 and k1 not in keys:
             keys.append(k1)
         # Check GEMINI_API_KEY_2, GEMINI_API_KEY_3, etc.
-        for i in range(2, 10):
+        for i in range(2, 50):
             ki = os.getenv(f"GEMINI_API_KEY_{i}")
             if ki and ki not in keys:
                 keys.append(ki)
