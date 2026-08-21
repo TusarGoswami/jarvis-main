@@ -21,12 +21,12 @@ async def verify_step_outcome(step: AgentStep, observation: Dict[str, Any]) -> V
     env = observation.get("environment_state", {})
 
     # 1. Fast Deterministic Verification
-    if tool_status == "error" or raw_res.get("status") == "error":
-        err_msg = raw_res.get("message") or raw_res.get("error") or "Tool execution failed."
+    if tool_status == "error" or observation.get("status") == "error" or raw_res.get("status") == "error":
+        err_msg = observation.get("message") or raw_res.get("message") or raw_res.get("error") or "Tool execution failed."
         return VerificationResult(
             success=False,
             reason=f"Action execution error: {err_msg}",
-            details={"raw_error": raw_res},
+            details={"raw_error": raw_res or observation},
             retryable=True
         )
 
@@ -95,8 +95,8 @@ Respond ONLY in valid JSON:
   "reason": "<Brief explanation of why it passed or failed>",
   "retryable": true/false
 }}"""
-        llm_resp = await generate_multimodal_content(prompt_text=verify_prompt)
-        text = llm_resp.reply_text.strip()
+        resp_text, _ = await generate_multimodal_content(prompt_text=verify_prompt)
+        text = resp_text.strip()
         
         # Clean potential markdown formatting
         if text.startswith("```"):
