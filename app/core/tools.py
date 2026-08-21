@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 import time
 import webbrowser
@@ -108,69 +109,77 @@ def launch_target(target: str) -> dict:
     if not target_clean:
         return {"status": "error", "message": "Target name cannot be empty"}
 
-    # 1. Check existing window
-    if activate_window(target_clean):
-        return {"status": "success", "action": "window_activated", "target": target_clean}
+    # Extract base app name if compound words like "and search", "and write" are attached
+    split_match = re.split(r'\s+(and\s+(search|write|type|open|then|look)|aur|phir)\s+', target_clean)
+    candidate_names = [target_clean]
+    if split_match and split_match[0].strip() and split_match[0].strip() != target_clean:
+        candidate_names.insert(0, split_match[0].strip())
 
-    # 2. Check Database custom commands
-    try:
-        con = _get_db()
-        cursor = con.cursor()
-        cursor.execute("SELECT path FROM sys_command WHERE LOWER(name) = ?", (target_clean,))
-        sys_res = cursor.fetchall()
-        if sys_res:
-            os.startfile(sys_res[0][0])
-            return {"status": "success", "action": "custom_sys_launched", "target": sys_res[0][0]}
+    for cand in candidate_names:
+        # 1. Check existing window
+        if activate_window(cand):
+            return {"status": "success", "action": "window_activated", "target": cand}
 
-        cursor.execute("SELECT url FROM web_command WHERE LOWER(name) = ?", (target_clean,))
-        web_res = cursor.fetchall()
-        if web_res:
-            webbrowser.open(web_res[0][0])
-            return {"status": "success", "action": "custom_web_opened", "url": web_res[0][0]}
-    except Exception:
-        pass
-
-    # 3. Known apps
-    if target_clean in KNOWN_APPS:
+        # 2. Check Database custom commands
         try:
-            os.startfile(KNOWN_APPS[target_clean])
-            return {"status": "success", "action": "app_launched", "target": target_clean}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+            con = _get_db()
+            cursor = con.cursor()
+            cursor.execute("SELECT path FROM sys_command WHERE LOWER(name) = ?", (cand,))
+            sys_res = cursor.fetchall()
+            if sys_res:
+                os.startfile(sys_res[0][0])
+                return {"status": "success", "action": "custom_sys_launched", "target": sys_res[0][0]}
 
-    # 4. Known sites
-    if target_clean in KNOWN_SITES:
-        webbrowser.open(KNOWN_SITES[target_clean])
-        return {"status": "success", "action": "site_opened", "target": KNOWN_SITES[target_clean]}
+            cursor.execute("SELECT url FROM web_command WHERE LOWER(name) = ?", (cand,))
+            web_res = cursor.fetchall()
+            if web_res:
+                webbrowser.open(web_res[0][0])
+                return {"status": "success", "action": "custom_web_opened", "url": web_res[0][0]}
+        except Exception:
+            pass
 
-    # 5. Fuzzy match
-    fuzzy = _fuzzy_match(target_clean)
-    if fuzzy:
-        matched_name, matched_val, match_type = fuzzy
-        if activate_window(matched_name):
-            return {"status": "success", "action": "fuzzy_window_activated", "target": matched_name}
-        if match_type == 'app':
-            os.startfile(matched_val)
-            return {"status": "success", "action": "fuzzy_app_launched", "target": matched_name}
-        else:
-            webbrowser.open(matched_val)
-            return {"status": "success", "action": "fuzzy_site_opened", "target": matched_val}
+        # 3. Known apps
+        if cand in KNOWN_APPS:
+            try:
+                os.startfile(KNOWN_APPS[cand])
+                return {"status": "success", "action": "app_launched", "target": cand}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
 
-    # 6. Direct URL or fallback search
-    if '.' in target_clean or any(target_clean.endswith(t) for t in ['.com', '.org', '.net', '.in', '.io', '.dev', '.ai']):
-        url = target_clean if target_clean.startswith("http") else f"https://{target_clean}"
-        webbrowser.open(url)
-        return {"status": "success", "action": "url_opened", "url": url}
+        # 4. Known sites
+        if cand in KNOWN_SITES:
+            webbrowser.open(KNOWN_SITES[cand])
+            return {"status": "success", "action": "site_opened", "target": KNOWN_SITES[cand]}
 
-    # 7. Subprocess / Windows start fallback
-    try:
-        res = subprocess.run(f'start "" "{target_clean}"', shell=True, capture_output=True, timeout=3)
-        if res.returncode == 0:
-            return {"status": "success", "action": "shell_launched", "target": target_clean}
-    except Exception:
-        pass
+        # 5. Fuzzy match
+        fuzzy = _fuzzy_match(cand)
+        if fuzzy:
+            matched_name, matched_val, match_type = fuzzy
+            if activate_window(matched_name):
+                return {"status": "success", "action": "fuzzy_window_activated", "target": matched_name}
+            if match_type == 'app':
+                os.startfile(matched_val)
+                return {"status": "success", "action": "fuzzy_app_launched", "target": matched_name}
+            else:
+                webbrowser.open(matched_val)
+                return {"status": "success", "action": "fuzzy_site_opened", "target": matched_val}
 
-    # Fallback to Google Search
+        # 6. Direct URL
+        if '.' in cand or any(cand.endswith(t) for t in ['.com', '.org', '.net', '.in', '.io', '.dev', '.ai']):
+            url = cand if cand.startswith("http") else f"https://{cand}"
+            webbrowser.open(url)
+            return {"status": "success", "action": "url_opened", "url": url}
+
+        # 7. Safe PATH executable lookup using shutil.which
+        exe_path = shutil.which(cand) or shutil.which(f"{cand}.exe")
+        if exe_path:
+            try:
+                os.startfile(exe_path)
+                return {"status": "success", "action": "path_app_launched", "target": cand}
+            except Exception:
+                pass
+
+    # 8. Fallback to Google Search (No intrusive Windows popups)
     search_url = f"https://www.google.com/search?q={quote(target_clean)}"
     webbrowser.open(search_url)
     return {"status": "success", "action": "web_search_fallback", "query": target_clean}
@@ -214,3 +223,40 @@ def get_system_stats() -> dict:
         "battery": psutil.sensors_battery().percent if hasattr(psutil, "sensors_battery") and psutil.sensors_battery() else None,
         "timestamp": time.time()
     }
+
+# --- GUI AUTOMATION & ACTION ENGINE ---
+import pyautogui
+pyautogui.FAILSAFE = True
+
+def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str = None, keys: list[str] = None) -> dict:
+    """
+    Executes a GUI action: click, type, hotkey, or scroll.
+    x and y coordinates are target desktop coordinates.
+    """
+    try:
+        width, height = pyautogui.size()
+        
+        if action_type == "click" and x is not None and y is not None:
+            target_x = max(0, min(width - 1, x))
+            target_y = max(0, min(height - 1, y))
+            pyautogui.moveTo(target_x, target_y, duration=0.4)
+            pyautogui.click()
+            return {"status": "success", "action": "click", "x": target_x, "y": target_y}
+            
+        elif action_type == "type" and text is not None:
+            pyautogui.write(text, interval=0.03)
+            return {"status": "success", "action": "type", "text": text}
+            
+        elif action_type == "hotkey" and keys is not None:
+            pyautogui.hotkey(*keys)
+            return {"status": "success", "action": "hotkey", "keys": keys}
+            
+        elif action_type == "scroll":
+            amount = int(text) if text and text.isdigit() else 300
+            pyautogui.scroll(amount)
+            return {"status": "success", "action": "scroll", "amount": amount}
+            
+        return {"status": "error", "message": f"Invalid action parameters: {action_type}"}
+    except Exception as e:
+        return {"status": "error", "message": f"GUI execution failed: {str(e)}"}
+
