@@ -12,16 +12,15 @@ if __name__ == "__main__":
         encrypt_key(key)
         print("Encrypted key saved to vault.")
     else:
-        # Try to migrate key from config if it exists
         try:
-            from engine.config import GEMINI_API_KEY
-            if GEMINI_API_KEY and "AIza" in str(GEMINI_API_KEY):
-                print("Found GEMINI API KEY in config, moving to vault...")
-                encrypt_key(GEMINI_API_KEY)
-                print("Encryption complete. You can now remove it from config.py.")
+            from app.config import settings
+            if settings.GEMINI_API_KEY and "AIza" in str(settings.GEMINI_API_KEY):
+                print("Found GEMINI API KEY in environment/config, moving to vault...")
+                encrypt_key(settings.GEMINI_API_KEY)
+                print("Encryption complete.")
             else:
-                print("No valid key found in config.")
-        except ImportError:
-            print("Could not import engine.config.")
+                print("No key found to encrypt.")
+        except Exception:
+            pass
 
         print("\nUsage to encrypt new key: python setup_encryption.py YOUR_API_KEY")
