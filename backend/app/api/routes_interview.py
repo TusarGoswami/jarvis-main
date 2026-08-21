@@ -1,7 +1,8 @@
 import time
 import uuid
+import logging
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Header, Depends
 from pydantic import BaseModel
 
 from app.core.interview_extractor import (
@@ -19,10 +20,36 @@ from engine.db import (
     save_interview_session,
     get_interview_session,
     update_interview_state,
-    log_integrity_event
+    log_integrity_event,
+    delete_interview_session,
+    verify_session_token
 )
 
+logger = logging.getLogger("vocalis.interview")
 router = APIRouter(prefix="/api/interview", tags=["Interview Protocol"])
+
+def verify_interview_auth(
+    interview_id: str,
+    authorization: Optional[str] = Header(None),
+    x_session_token: Optional[str] = Header(None),
+    session_token: Optional[str] = Query(None)
+) -> bool:
+    """Validates session authorization token (Bearer header, x-session-token, or query param)."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    elif x_session_token:
+        token = x_session_token.strip()
+    elif session_token:
+        token = session_token.strip()
+
+    if not verify_session_token(interview_id, token):
+        raise HTTPException(
+            status_code=401,
+            detail=f"Unauthorized: Access to interview '{interview_id}' requires a valid session authorization token."
+        )
+    return True
+
 
 class TextUploadRequest(BaseModel):
     text: str
@@ -138,11 +165,11 @@ async def upload_job_description(
 @router.post("/create")
 async def create_interview(req: CreateInterviewRequest):
     """
-    Persists interview configuration and initializes session.
+    Persists interview configuration, generates session token, and initializes session.
     """
     interview_id = req.interview_id or f"VOCALIS-INT-{uuid.uuid4().hex[:8].upper()}"
     
-    success = save_interview_session(
+    session_token = save_interview_session(
         interview_id=interview_id,
         resume_data=req.resume_data,
         job_description_data=req.job_description_data,
@@ -152,12 +179,13 @@ async def create_interview(req: CreateInterviewRequest):
         status="ready"
     )
     
-    if not success:
+    if not session_token:
         raise HTTPException(status_code=500, detail="Failed to initialize interview session in database.")
         
     return {
         "status": "success",
         "interview_id": interview_id,
+        "session_token": session_token,
         "message": "Interview protocol initialized and ready for assessment."
     }
 
@@ -376,3 +404,47 @@ async def get_interview(interview_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Interview session not found.")
     return {"status": "success", "data": session}
+
+@router.delete("/session/{interview_id}")
+async def delete_candidate_interview(
+    interview_id: str,
+    confirm: bool = Query(False, description="Must be true to authorize deletion"),
+    confirm_interview_id: str = Query("", description="Must match the target interview_id"),
+    authorization: Optional[str] = Header(None),
+    x_session_token: Optional[str] = Header(None),
+    session_token: Optional[str] = Query(None)
+):
+    """
+    Permanently purges a candidate's complete interview records, resume data,
+    answers, and evaluation scorecards from the database.
+    Requires session token authorization and double confirmation to prevent unauthorized deletion.
+    """
+    # 1. Cryptographic session token authorization check
+    verify_interview_auth(
+        interview_id=interview_id,
+        authorization=authorization,
+        x_session_token=x_session_token,
+        session_token=session_token
+    )
+
+    # 2. Accidental deletion confirmation check
+    if not confirm or confirm_interview_id != interview_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Permanent deletion requires 'confirm=true' and matching 'confirm_interview_id' parameter."
+        )
+
+    # Audit log before deletion
+    logger.warning(f"[PII DELETION] Purging all interview records for candidate interview_id='{interview_id}'")
+    
+    deleted = delete_interview_session(interview_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Interview session '{interview_id}' not found or already deleted.")
+    
+    return {
+        "status": "success",
+        "action": "delete_candidate_session",
+        "interview_id": interview_id,
+        "message": f"Interview record for '{interview_id}' has been permanently purged."
+    }
+
