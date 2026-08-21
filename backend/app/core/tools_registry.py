@@ -148,6 +148,18 @@ TOOLS_MANIFEST: Dict[str, ToolDefinition] = {
             "required": ["recipient_name", "body"]
         },
         risk_level="medium"
+    ),
+    "screenshot": ToolDefinition(
+        name="screenshot",
+        description="Captures the current desktop screen state and visual UI for analysis.",
+        parameters={"type": "object", "properties": {}},
+        risk_level="low"
+    ),
+    "observe_screen": ToolDefinition(
+        name="observe_screen",
+        description="Inspects the visual screen to verify UI state or active application windows.",
+        parameters={"type": "object", "properties": {}},
+        risk_level="low"
     )
 }
 
@@ -191,6 +203,15 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
             return {"status": "success", "action": "system_telemetry", "data": stats}
         elif tool_name == "send_email":
             return send_email(recipient_name=arguments.get("recipient_name"), body=arguments.get("body"))
+        elif tool_name in ["screenshot", "observe_screen"]:
+            from app.core.multimodal import capture_screen_bytes
+            s_bytes = capture_screen_bytes()
+            return {
+                "status": "success",
+                "action": tool_name,
+                "screen_captured": True,
+                "size_bytes": len(s_bytes) if s_bytes else 0
+            }
 
         return {"status": "error", "message": f"Tool '{tool_name}' has no execution handler."}
     except Exception as e:

@@ -25,6 +25,7 @@ class AgentResponse(BaseModel):
     citations: List[str] = []
     latency_ms: float
     token_usage: Dict[str, int] = {}
+    task_id: Optional[str] = None
 
 VOCALIS_PERSONA = (
     "You are Vocalis AI, a cutting-edge multimodal voice & vision operating system. "
@@ -201,7 +202,8 @@ async def process_turn(
             confirmation_reason=react_res.confirmation_reason,
             citations=citations,
             latency_ms=latency,
-            token_usage={"prompt_tokens": len(react_res.steps) * 150, "response_tokens": 100}
+            token_usage={"prompt_tokens": len(react_res.steps) * 150, "response_tokens": 100},
+            task_id=react_res.task_id
         )
 
     # Multimodal / LLM processing with Gemini-Groq failover
