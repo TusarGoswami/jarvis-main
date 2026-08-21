@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 // Components
 import { ParticleBackground } from "./components/ParticleBackground";
@@ -10,15 +10,19 @@ import { AssistantAvatar } from "./components/AssistantAvatar";
 import { StateRing } from "./components/StateRing";
 import { VoiceInputBar } from "./components/VoiceInputBar";
 import { ActivityDrawer } from "./components/ActivityDrawer";
-import { TelemetryStrip } from "./components/TelemetryStrip";
+import { TelemetryStrip, AppMode } from "./components/TelemetryStrip";
 import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
+import { InterviewProtocol } from "./components/interview/InterviewProtocol";
 
 // Hooks & Types
 import { AssistantContext } from "./hooks/useAssistantState";
 import type { AssistantState, MessageItem, SystemStats } from "./components/types";
 
 export default function VocalisHome() {
+  // ─── Mode State (JARVIS vs INTERVIEW) ───
+  const [appMode, setAppMode] = useState<AppMode>("jarvis");
+
   // ─── Core State ───
   const [rawState, setRawState] = useState<AssistantState>("idle");
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -296,78 +300,107 @@ export default function VocalisHome() {
 
   return (
     <AssistantContext.Provider value={contextValue}>
-      <main className="min-h-screen bg-[#030712] text-gray-100 relative overflow-hidden flex flex-col justify-between">
+      <main className="min-h-screen bg-[#030712] text-gray-100 relative overflow-x-hidden flex flex-col justify-between">
         {/* Animated particle background */}
         <ParticleBackground />
 
-        {/* Telemetry strip (thin top bar) */}
+        {/* Telemetry strip (thin top bar with JARVIS / INTERVIEW mode switch) */}
         <TelemetryStrip
           stats={stats}
           isConnected={isWsConnected}
           audioMuted={audioMuted}
           onToggleMute={() => setAudioMuted(!audioMuted)}
           onOpenEvals={() => setIsEvalOpen(true)}
+          appMode={appMode}
+          onModeChange={setAppMode}
         />
 
-        {/* ─── Central Avatar Stage (Dominant Central Viewport) ─── */}
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center pt-16 pb-28 px-4">
-          {/* Avatar + Ring container */}
-          <motion.div
-            className="relative flex items-center justify-center"
-            style={{
-              width: "clamp(320px, 42vw, 500px)",
-              height: "clamp(320px, 42vw, 500px)",
-            }}
-            animate={{
-              scale: isActive ? 1.03 : 1,
-            }}
-            transition={{ type: "spring", stiffness: 100, damping: 20 }}
-          >
-            {/* State ring behind avatar */}
-            <StateRing />
+        {/* ─── Mode Switching Content ─── */}
+        <AnimatePresence mode="wait">
+          {appMode === "interview" ? (
+            /* ─── INTERVIEW MODE (Phase 1 Protocol Setup) ─── */
+            <motion.div
+              key="interview-mode"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 pt-12 pb-16"
+            >
+              <InterviewProtocol />
+            </motion.div>
+          ) : (
+            /* ─── JARVIS MODE (Original Autonomous Multimodal Assistant) ─── */
+            <motion.div
+              key="jarvis-mode"
+              initial={{ opacity: 0, y: -15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              {/* Central Avatar Stage (Dominant Central Viewport) */}
+              <div className="relative z-10 flex-1 flex flex-col items-center justify-center pt-16 pb-28 px-4">
+                {/* Avatar + Ring container */}
+                <motion.div
+                  className="relative flex items-center justify-center"
+                  style={{
+                    width: "clamp(320px, 42vw, 500px)",
+                    height: "clamp(320px, 42vw, 500px)",
+                  }}
+                  animate={{
+                    scale: isActive ? 1.03 : 1,
+                  }}
+                  transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                >
+                  {/* State ring behind avatar */}
+                  <StateRing />
 
-            {/* Robot avatar centered inside ring */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <AssistantAvatar />
-            </div>
-          </motion.div>
+                  {/* Robot avatar centered inside ring */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <AssistantAvatar />
+                  </div>
+                </motion.div>
 
-          {/* Ambient state text */}
-          <motion.p
-            className="mt-6 text-gray-400 text-sm font-mono tracking-wide text-center"
-            animate={{
-              opacity: isActive ? 0.4 : 0.8,
-            }}
-            transition={{ duration: 0.5 }}
-          >
-            {effectiveState === "idle" && "Speak or type to command Vocalis AI..."}
-            {effectiveState === "listening" && "Listening to your voice..."}
-            {effectiveState === "thinking" && "Reasoning & executing plan..."}
-            {effectiveState === "speaking" && "Responding..."}
-            {effectiveState === "tool_use" && "Autonomous tool execution active..."}
-          </motion.p>
-        </div>
+                {/* Ambient state text */}
+                <motion.p
+                  className="mt-6 text-gray-400 text-sm font-mono tracking-wide text-center"
+                  animate={{
+                    opacity: isActive ? 0.4 : 0.8,
+                  }}
+                  transition={{ duration: 0.5 }}
+                >
+                  {effectiveState === "idle" && "Speak or type to command Vocalis AI..."}
+                  {effectiveState === "listening" && "Listening to your voice..."}
+                  {effectiveState === "thinking" && "Reasoning & executing plan..."}
+                  {effectiveState === "speaking" && "Responding..."}
+                  {effectiveState === "tool_use" && "Autonomous tool execution active..."}
+                </motion.p>
+              </div>
 
-        {/* Voice input bar (fixed bottom center) */}
-        <VoiceInputBar
-          onSendQuery={handleSendQuery}
-          onToggleListening={toggleListening}
-          isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
-        />
+              {/* Voice input bar (fixed bottom center) */}
+              <VoiceInputBar
+                onSendQuery={handleSendQuery}
+                onToggleListening={toggleListening}
+                isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
+              />
 
-        {/* Activity & Workspace drawer (slide-in from right) */}
-        <ActivityDrawer
-          isOpen={isDrawerOpen}
-          onToggle={handleDrawerToggle}
-          messages={messages}
-          onConfirmAction={handleConfirmAction}
-          onCancelAction={handleCancelAction}
-          onPlayAudio={handlePlayAudio}
-          unreadCount={unreadCount}
-        />
+              {/* Activity & Workspace drawer (slide-in from right) */}
+              <ActivityDrawer
+                isOpen={isDrawerOpen}
+                onToggle={handleDrawerToggle}
+                messages={messages}
+                onConfirmAction={handleConfirmAction}
+                onCancelAction={handleCancelAction}
+                onPlayAudio={handlePlayAudio}
+                unreadCount={unreadCount}
+              />
 
-        {/* Dev state toggle (bottom-left, for interactive testing) */}
-        <DevStateToggle />
+              {/* Dev state toggle (bottom-left, for interactive testing) */}
+              <DevStateToggle />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Eval benchmark modal */}
         <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />

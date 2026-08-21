@@ -12,8 +12,12 @@ import {
   Award,
   Volume2,
   VolumeX,
+  Bot,
+  UserCheck,
 } from "lucide-react";
 import type { SystemStats } from "./types";
+
+export type AppMode = "jarvis" | "interview";
 
 interface TelemetryStripProps {
   stats: SystemStats | null;
@@ -21,19 +25,13 @@ interface TelemetryStripProps {
   audioMuted: boolean;
   onToggleMute: () => void;
   onOpenEvals: () => void;
+  appMode: AppMode;
+  onModeChange: (mode: AppMode) => void;
 }
 
 /**
- * TelemetryStrip — Collapsible thin top bar for system stats.
- *
- * Carries forward from TelemetryPanel:
- *  - Fallback default values when stats is null
- *  - CPU color thresholds: >80 red, >50 amber, otherwise cyan
- *  - Dynamic disk entries iteration
- *  - Nullable battery display
- *  - Network upstream/downstream display
- *
- * Also absorbs header controls (mute toggle, WS status, eval button).
+ * TelemetryStrip — Collapsible thin top bar for system stats with mode switching.
+ * Includes [JARVIS] and [INTERVIEW] protocol mode toggles.
  */
 export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   stats,
@@ -41,6 +39,8 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   audioMuted,
   onToggleMute,
   onOpenEvals,
+  appMode,
+  onModeChange,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -53,32 +53,61 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   const netRecv = stats?.net_recv_mb ?? 620.1;
   const battery = stats?.battery ?? null;
 
-  // CPU color threshold logic carried from TelemetryPanel
+  // CPU color threshold logic
   const cpuColor = cpu > 80 ? "text-red-400" : cpu > 50 ? "text-amber-400" : "text-cyan-300";
 
   return (
     <motion.div
       className="fixed top-0 left-0 right-0 z-20 backdrop-blur-xl"
       style={{
-        background: "rgba(3, 7, 18, 0.85)",
+        background: "rgba(3, 7, 18, 0.88)",
         borderBottom: "1px solid rgba(0, 240, 255, 0.15)",
       }}
       layout
     >
       {/* Collapsed strip — always visible */}
       <div className="flex items-center justify-between px-4 py-1.5 text-xs font-mono">
-        {/* Left: Brand */}
-        <div className="flex items-center gap-2">
-          <span className="text-cyan-300 font-black tracking-wider text-[11px]">
-            VOCALIS AI
-          </span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-400/80">
-            v2.0.0
-          </span>
+        {/* Left: Brand & Mode Selector */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-cyan-300 font-black tracking-wider text-[11px]">
+              VOCALIS AI
+            </span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-400/80">
+              v2.0.0
+            </span>
+          </div>
+
+          {/* Mode Switcher Buttons */}
+          <div className="flex items-center bg-slate-950 p-0.5 rounded-xl border border-cyan-500/30">
+            <button
+              onClick={() => onModeChange("jarvis")}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
+                appMode === "jarvis"
+                  ? "bg-cyan-500/20 border border-cyan-400/60 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.35)]"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <Bot className="w-3 h-3" />
+              <span>JARVIS</span>
+            </button>
+
+            <button
+              onClick={() => onModeChange("interview")}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
+                appMode === "interview"
+                  ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/60 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.35)]"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <UserCheck className="w-3 h-3 text-cyan-400" />
+              <span>INTERVIEW</span>
+            </button>
+          </div>
         </div>
 
         {/* Center: Quick stats */}
-        <div className="flex items-center gap-4 text-[11px]">
+        <div className="hidden md:flex items-center gap-4 text-[11px]">
           <span className="flex items-center gap-1 text-gray-400">
             <Cpu className="w-3 h-3 text-cyan-400/60" />
             <span className={cpuColor}>{cpu.toFixed(0)}%</span>
@@ -128,7 +157,7 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
             className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-300/80 hover:text-cyan-200 transition text-[10px]"
           >
             <Award className="w-3 h-3" />
-            <span>Evals</span>
+            <span className="hidden sm:inline">Evals</span>
           </button>
 
           {/* Expand/collapse toggle */}
@@ -187,7 +216,7 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
                 </div>
               </div>
 
-              {/* Disks - carried forward from TelemetryPanel */}
+              {/* Disks */}
               {stats?.disks && Object.keys(stats.disks).length > 0 && (
                 <div className="flex flex-col gap-1">
                   <span className="text-gray-400 text-[10px]">STORAGE</span>
