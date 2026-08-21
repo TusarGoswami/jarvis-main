@@ -208,9 +208,13 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
   const stopQuestionAudio = useCallback(() => {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
       currentAudioRef.current = null;
     }
-    setInterviewerState("idle");
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setInterviewerState((prev) => (prev === "speaking" ? "idle" : prev));
   }, []);
 
   // 5. Fetch Session State

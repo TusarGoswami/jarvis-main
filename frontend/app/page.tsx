@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // Components
@@ -46,6 +46,20 @@ export default function VocalisHome() {
   // ─── Refs ───
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const currentTurnIdRef = useRef<number>(0);
+
+  // ─── Central Audio Interrupt & Sequence Manager ───
+  const stopCurrentAudio = useCallback(() => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current.currentTime = 0;
+      activeAudioRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
 
   // ─── Context value (memoized for performance) ───
   const contextValue = useMemo(
@@ -90,8 +104,13 @@ export default function VocalisHome() {
               if (data.state === "processing") setRawState("thinking");
               if (data.state === "tool_use") setRawState("tool_use");
             } else if (data.type === "turn_result") {
+              // If turn_id exists and doesn't match the current turn, discard stale answer
+              if (data.turn_id && data.turn_id !== currentTurnIdRef.current) {
+                return;
+              }
+
               const res = data.data;
-              setRawState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
+              stopCurrentAudio();
 
               const newMsg: MessageItem = {
                 id: Date.now().toString(),
@@ -114,8 +133,20 @@ export default function VocalisHome() {
               // Play audio if provided and not muted
               if (data.audio_base64 && !audioMuted) {
                 const audio = new Audio(`data:audio/mpeg;base64,${data.audio_base64}`);
-                audio.onended = () => setRawState("idle");
-                audio.play().catch(() => setRawState("idle"));
+                activeAudioRef.current = audio;
+                setRawState("speaking");
+                audio.onended = () => {
+                  if (activeAudioRef.current === audio) {
+                    activeAudioRef.current = null;
+                    setRawState("idle");
+                  }
+                };
+                audio.play().catch(() => {
+                  if (activeAudioRef.current === audio) {
+                    activeAudioRef.current = null;
+                    setRawState("idle");
+                  }
+                });
               } else {
                 setRawState("idle");
               }
@@ -153,12 +184,14 @@ export default function VocalisHome() {
 
     return () => {
       clearInterval(interval);
+      stopCurrentAudio();
       if (wsRef.current) wsRef.current.close();
     };
-  }, [audioMuted]);
+  }, [audioMuted, stopCurrentAudio]);
 
   // ─── Voice Speech Recognition (preserved from original) ───
   const toggleListening = () => {
+    stopCurrentAudio();
     if (rawState === "listening") {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
@@ -204,6 +237,12 @@ export default function VocalisHome() {
 
   // ─── Query Handling (preserved from original) ───
   const handleSendQuery = async (query: string, includeScreen: boolean, lang: string) => {
+    // 1. Immediately cancel any currently playing or scheduled audio
+    stopCurrentAudio();
+
+    // 2. Increment turn ID to invalidate any prior pending responses
+    const turnId = ++currentTurnIdRef.current;
+
     setCurrentAgentSteps([]);
     const userMsg: MessageItem = {
       id: Date.now().toString(),
@@ -221,6 +260,7 @@ export default function VocalisHome() {
           query: query,
           include_screen: includeScreen,
           language: lang === "auto" ? undefined : lang,
+          turn_id: turnId,
         })
       );
     } else {
@@ -236,6 +276,9 @@ export default function VocalisHome() {
           }),
         });
         const resData = await res.json();
+        
+        // If user asked another question while this request was in flight, discard it
+        if (turnId !== currentTurnIdRef.current) return;
         setRawState("idle");
 
         const vocalisMsg: MessageItem = {
@@ -255,7 +298,9 @@ export default function VocalisHome() {
         };
         setMessages((prev) => [...prev, vocalisMsg]);
       } catch (err) {
-        setRawState("idle");
+        if (turnId === currentTurnIdRef.current) {
+          setRawState("idle");
+        }
         console.error(err);
       }
     }
@@ -277,6 +322,7 @@ export default function VocalisHome() {
 
   // ─── TTS Audio Playback (preserved from original) ───
   const handlePlayAudio = async (text: string, lang?: string) => {
+    stopCurrentAudio();
     try {
       const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
         method: "POST",
@@ -287,9 +333,20 @@ export default function VocalisHome() {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
+        activeAudioRef.current = audio;
         setRawState("speaking");
-        audio.onended = () => setRawState("idle");
-        audio.play().catch(() => setRawState("idle"));
+        audio.onended = () => {
+          if (activeAudioRef.current === audio) {
+            activeAudioRef.current = null;
+            setRawState("idle");
+          }
+        };
+        audio.play().catch(() => {
+          if (activeAudioRef.current === audio) {
+            activeAudioRef.current = null;
+            setRawState("idle");
+          }
+        });
       }
     } catch {
       setRawState("idle");

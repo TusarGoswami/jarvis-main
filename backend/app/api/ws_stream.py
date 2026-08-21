@@ -33,6 +33,7 @@ async def websocket_stream(websocket: WebSocket):
                 attach_screen = data.get("include_screen", False)
                 custom_image = data.get("image_base64")
                 lang = data.get("language")
+                turn_id = data.get("turn_id")
 
                 image_bytes = None
                 if attach_screen:
@@ -41,13 +42,14 @@ async def websocket_stream(websocket: WebSocket):
                     image_bytes = decode_image_bytes(custom_image)
 
                 # Send processing indicator
-                await websocket.send_json({"type": "status", "state": "processing"})
+                await websocket.send_json({"type": "status", "state": "processing", "turn_id": turn_id})
 
                 # Define intermediate step progress streaming callback
                 async def stream_step(step_record: dict):
                     try:
                         await websocket.send_json({
                             "type": "step_update",
+                            "turn_id": turn_id,
                             "step": step_record
                         })
                     except Exception:
@@ -71,6 +73,7 @@ async def websocket_stream(websocket: WebSocket):
 
                 await websocket.send_json({
                     "type": "turn_result",
+                    "turn_id": turn_id,
                     "data": response.model_dump(),
                     "audio_base64": audio_base64
                 })
