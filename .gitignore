@@ -8,14 +8,19 @@ __pycache__/
 # Virtual Environments
 venv/
 .venv/
+backend/.venv/
+backend/venv/
 venv_jarvis/
 .python-version
 
-# Data & Config Vault
+# Data, Config Vault & Workspace Sandbox
 contacts.csv
 jarvis.db
+backend/jarvis.db
+backend/workspace/
 /engine/cookies.json
 .env
+backend/.env
 .key
 .vault
 
