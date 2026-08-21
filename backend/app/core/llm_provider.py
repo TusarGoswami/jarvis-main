@@ -1,12 +1,16 @@
 import os
 import base64
 import logging
+import warnings
 from typing import Optional, Tuple, Any, List
 from google import genai
 from google.genai import types
 from groq import Groq
 
 from app.config import settings
+
+# Suppress SDK deprecation / AFC notices from Google GenAI
+warnings.filterwarnings("ignore", message=".*automatic function calling.*")
 
 logger = logging.getLogger("vocalis.llm_provider")
 
