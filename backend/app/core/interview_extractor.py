@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.core.llm_provider import generate_gemini_content_sync
 
 # Supported technical domains
 TECHNICAL_DOMAINS = [
@@ -86,18 +87,14 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     except Exception:
         raise ValueError(f"Unsupported file format: {filename}")
 
-def _get_ai_client():
-    if settings.GEMINI_API_KEY:
-        return genai.Client(api_key=settings.GEMINI_API_KEY)
-    return None
+
 
 def parse_resume_with_ai(raw_text: str) -> Dict[str, Any]:
     """
     Extracts structured candidate profile from resume text using Gemini 2.5 Flash
     with fallback parsing for offline environments.
     """
-    client = _get_ai_client()
-    if client and len(raw_text.strip()) > 30:
+    if settings.GEMINI_API_KEYS and len(raw_text.strip()) > 30:
         prompt = f"""
         You are a high-precision Technical Recruiter AI.
         Analyze the following candidate Resume/CV text and extract structured profile data in strict JSON format.
@@ -127,8 +124,7 @@ def parse_resume_with_ai(raw_text: str) -> Dict[str, Any]:
         }}
         """
         try:
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
+            response = generate_gemini_content_sync(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.1,
@@ -147,8 +143,7 @@ def parse_job_description_with_ai(raw_text: str) -> Dict[str, Any]:
     """
     Extracts structured job specifications and detects technical domain from JD.
     """
-    client = _get_ai_client()
-    if client and len(raw_text.strip()) > 20:
+    if settings.GEMINI_API_KEYS and len(raw_text.strip()) > 20:
         prompt = f"""
         You are an AI Technical Hiring Specialist.
         Analyze this Job Description and extract key requirements in strict JSON format.
@@ -175,8 +170,7 @@ def parse_job_description_with_ai(raw_text: str) -> Dict[str, Any]:
         }}
         """
         try:
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
+            response = generate_gemini_content_sync(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.1,

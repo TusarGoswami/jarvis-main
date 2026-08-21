@@ -1,4 +1,5 @@
 import os
+from typing import List, Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from engine.vault import decrypt_key
@@ -21,21 +22,43 @@ class Settings(BaseModel):
     # Model configuration
     GEMINI_MODEL: str = "gemini-2.5-flash"
     FALLBACK_MODEL: str = "gemini-1.5-flash"
-    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_MODEL: str = "qwen/qwen3.6-27b"
     GROQ_VISION_MODEL: str = "openai/gpt-oss-20b"
 
     
-    # Secure API Key loading
+    # Secure Multi-API Key loading with automatic failover
     @property
-    def GEMINI_API_KEY(self) -> str | None:
-        key = decrypt_key()
-        if not key:
-            key = os.getenv("GEMINI_API_KEY")
-        return key
+    def GEMINI_API_KEYS(self) -> List[str]:
+        keys: List[str] = []
+        # Check vault
+        v_key = decrypt_key()
+        if v_key and v_key not in keys:
+            keys.append(v_key)
+        # Check primary GEMINI_API_KEY
+        k1 = os.getenv("GEMINI_API_KEY")
+        if k1 and k1 not in keys:
+            keys.append(k1)
+        # Check GEMINI_API_KEY_2, GEMINI_API_KEY_3, etc.
+        for i in range(2, 10):
+            ki = os.getenv(f"GEMINI_API_KEY_{i}")
+            if ki and ki not in keys:
+                keys.append(ki)
+        # Check comma-separated in GEMINI_API_KEYS
+        multi = os.getenv("GEMINI_API_KEYS")
+        if multi:
+            for k in multi.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in keys:
+                    keys.append(k_clean)
+        return keys
 
     @property
-    def GROQ_API_KEY(self) -> str | None:
+    def GEMINI_API_KEY(self) -> Optional[str]:
+        keys = self.GEMINI_API_KEYS
+        return keys[0] if keys else None
+
+    @property
+    def GROQ_API_KEY(self) -> Optional[str]:
         return os.getenv("GROQ_API_KEY")
 
 settings = Settings()
-

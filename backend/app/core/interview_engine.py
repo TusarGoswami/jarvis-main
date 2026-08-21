@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.core.llm_provider import generate_gemini_content_sync
 
 # Supported Question Categories
 CATEGORIES = ["CV", "TECHNICAL", "DOMAIN", "BEHAVIORAL", "FOLLOW_UP"]
@@ -21,10 +22,7 @@ RUBRIC = {
     10: "Exceptional depth, precision, and reasoning"
 }
 
-def _get_ai_client():
-    if settings.GEMINI_API_KEY:
-        return genai.Client(api_key=settings.GEMINI_API_KEY)
-    return None
+
 
 def _get_timestamp_str():
     return time.strftime("%H:%M:%S")
@@ -57,8 +55,7 @@ def generate_initial_question(session: Dict[str, Any]) -> Dict[str, Any]:
     projects = resume.get("projects", [])
     skills = resume.get("skills", [])
     
-    client = _get_ai_client()
-    if client:
+    if settings.GEMINI_API_KEYS:
         prompt = f"""
         You are a strict, objective, and expert Technical AI Interviewer conducting a formal technical interview.
         Candidate Name: {candidate_name}
@@ -79,8 +76,7 @@ def generate_initial_question(session: Dict[str, Any]) -> Dict[str, Any]:
         }}
         """
         try:
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
+            response = generate_gemini_content_sync(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.2,
@@ -131,8 +127,7 @@ def evaluate_answer_and_next_turn(session: Dict[str, Any], candidate_answer: str
     total_answered = len(history) + 1
     new_phase = determine_phase_by_elapsed(elapsed_seconds, current_phase, total_answered)
     
-    client = _get_ai_client()
-    if client and len(candidate_answer.strip()) > 2:
+    if settings.GEMINI_API_KEYS and len(candidate_answer.strip()) > 2:
         prompt = f"""
         You are a STRICT, RIGOROUS, AND OBJECTIVE Technical AI Interviewer evaluating a candidate's response.
         
@@ -191,8 +186,7 @@ def evaluate_answer_and_next_turn(session: Dict[str, Any], candidate_answer: str
         }}
         """
         try:
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
+            response = generate_gemini_content_sync(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.15,
@@ -406,8 +400,7 @@ def generate_final_evaluation_report(session: Dict[str, Any]) -> Dict[str, Any]:
         recommendation = "No Hire"
         rec_color = "red"
 
-    client = _get_ai_client()
-    if client and history:
+    if settings.GEMINI_API_KEYS and history:
         prompt = f"""
         You are a strict, objective, and unbiased Technical Hiring Bar Raiser creating the final candidate evaluation report.
         
@@ -442,8 +435,7 @@ def generate_final_evaluation_report(session: Dict[str, Any]) -> Dict[str, Any]:
         }}
         """
         try:
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
+            response = generate_gemini_content_sync(
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.2,
