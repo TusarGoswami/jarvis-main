@@ -54,7 +54,8 @@ def init_db():
         "activity_log": "TEXT DEFAULT '[]'",
         "integrity_events": "TEXT DEFAULT '[]'",
         "integrity_score": "REAL DEFAULT 10.0",
-        "final_evaluation": "TEXT DEFAULT NULL"
+        "final_evaluation": "TEXT DEFAULT NULL",
+        "session_token": "TEXT DEFAULT NULL"
     }
     
     for col_name, col_def in new_cols.items():
@@ -67,8 +68,24 @@ def init_db():
     con.commit()
     con.close()
 
+import uuid
+from engine.vault import encrypt_data, decrypt_data
+
 # Initialize tables on import
 init_db()
+
+def _decrypt_json(raw_val: Optional[str], default_val: Any = None) -> Any:
+    """Helper to decrypt and deserialize encrypted JSON fields."""
+    if not raw_val:
+        return default_val
+    try:
+        decrypted = decrypt_data(raw_val)
+        return json.loads(decrypted) if decrypted else default_val
+    except Exception:
+        try:
+            return json.loads(raw_val)
+        except Exception:
+            return default_val
 
 def save_interview_session(
     interview_id: str,
@@ -77,30 +94,58 @@ def save_interview_session(
     domain: str,
     experience_level: str,
     programming_language: str,
-    status: str = "ready"
-) -> bool:
+    status: str = "ready",
+    session_token: Optional[str] = None
+) -> Optional[str]:
+    """
+    Saves a new interview session with encrypted PII and returns the generated session authorization token.
+    """
+    token = session_token or f"tok_{uuid.uuid4().hex}"
     try:
         con = sqlite3.connect(DB_PATH)
         cursor = con.cursor()
         cursor.execute("""
         INSERT OR REPLACE INTO interview_sessions 
-        (interview_id, resume_data, job_description_data, domain, experience_level, programming_language, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (interview_id, resume_data, job_description_data, domain, experience_level, programming_language, status, session_token)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             interview_id,
-            json.dumps(resume_data),
-            json.dumps(job_description_data),
+            encrypt_data(json.dumps(resume_data)),
+            encrypt_data(json.dumps(job_description_data)),
             domain,
             experience_level,
             programming_language,
-            status
+            status,
+            token
         ))
         con.commit()
         con.close()
-        return True
+        return token
     except Exception as e:
         print(f"[DB] Error saving interview session: {e}")
+        return None
+
+def verify_session_token(interview_id: str, token: Optional[str]) -> bool:
+    """
+    Verifies that the provided session authorization token matches the interview session.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute("SELECT session_token FROM interview_sessions WHERE interview_id = ?", (interview_id,))
+        row = cursor.fetchone()
+        con.close()
+        if not row:
+            return False
+        stored_token = row[0]
+        # Legacy session fallback: if no token stored, allow access
+        if not stored_token:
+            return True
+        return stored_token == token
+    except Exception as e:
+        print(f"[DB] Error verifying session token: {e}")
         return False
+
 
 def update_interview_state(
     interview_id: str,
@@ -127,10 +172,10 @@ def update_interview_state(
             params.append(current_phase)
         if current_question is not None:
             updates.append("current_question = ?")
-            params.append(json.dumps(current_question))
+            params.append(encrypt_data(json.dumps(current_question)))
         if questions_history is not None:
             updates.append("questions_history = ?")
-            params.append(json.dumps(questions_history))
+            params.append(encrypt_data(json.dumps(questions_history)))
         if difficulty is not None:
             updates.append("difficulty = ?")
             params.append(difficulty)
@@ -142,16 +187,16 @@ def update_interview_state(
             params.append(status)
         if activity_log is not None:
             updates.append("activity_log = ?")
-            params.append(json.dumps(activity_log))
+            params.append(encrypt_data(json.dumps(activity_log)))
         if integrity_events is not None:
             updates.append("integrity_events = ?")
-            params.append(json.dumps(integrity_events))
+            params.append(encrypt_data(json.dumps(integrity_events)))
         if integrity_score is not None:
             updates.append("integrity_score = ?")
             params.append(integrity_score)
         if final_evaluation is not None:
             updates.append("final_evaluation = ?")
-            params.append(json.dumps(final_evaluation))
+            params.append(encrypt_data(json.dumps(final_evaluation)))
             
         if not updates:
             con.close()
@@ -165,6 +210,22 @@ def update_interview_state(
         return True
     except Exception as e:
         print(f"[DB] Error updating interview state: {e}")
+        return False
+
+def delete_interview_session(interview_id: str) -> bool:
+    """
+    Permanently deletes all candidate records and evaluation data for the given interview_id.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute("DELETE FROM interview_sessions WHERE interview_id = ?", (interview_id,))
+        rows_affected = cursor.rowcount
+        con.commit()
+        con.close()
+        return rows_affected > 0
+    except Exception as e:
+        print(f"[DB] Error deleting interview session '{interview_id}': {e}")
         return False
 
 def log_integrity_event(
@@ -237,7 +298,7 @@ def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
             domain, experience_level, programming_language, status,
             current_phase, current_question, questions_history, difficulty,
             start_time, duration_seconds, activity_log, integrity_events,
-            integrity_score, final_evaluation
+            integrity_score, final_evaluation, session_token
         FROM interview_sessions WHERE interview_id = ?
         """, (interview_id,))
         row = cursor.fetchone()
@@ -255,23 +316,24 @@ def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
             return {
                 "interview_id": row[0],
                 "created_at": row[1],
-                "resume_data": json.loads(row[2]) if row[2] else {},
-                "job_description_data": json.loads(row[3]) if row[3] else {},
+                "resume_data": _decrypt_json(row[2], default_val={}),
+                "job_description_data": _decrypt_json(row[3], default_val={}),
                 "domain": row[4],
                 "experience_level": row[5],
                 "programming_language": row[6],
                 "status": row[7],
                 "current_phase": row[8] or "introduction",
-                "current_question": json.loads(row[9]) if row[9] else None,
-                "questions_history": json.loads(row[10]) if row[10] else [],
+                "current_question": _decrypt_json(row[9], default_val=None),
+                "questions_history": _decrypt_json(row[10], default_val=[]),
                 "difficulty": row[11] or "medium",
                 "start_time": start_t,
                 "duration_seconds": dur_sec,
                 "time_remaining": time_remaining,
-                "activity_log": json.loads(row[14]) if row[14] else [],
-                "integrity_events": json.loads(row[15]) if row[15] else [],
+                "activity_log": _decrypt_json(row[14], default_val=[]),
+                "integrity_events": _decrypt_json(row[15], default_val=[]),
                 "integrity_score": row[16] if row[16] is not None else 10.0,
-                "final_evaluation": json.loads(row[17]) if row[17] else None
+                "final_evaluation": _decrypt_json(row[17], default_val=None),
+                "session_token": row[18] if len(row) > 18 else None
             }
         return None
     except Exception as e:
