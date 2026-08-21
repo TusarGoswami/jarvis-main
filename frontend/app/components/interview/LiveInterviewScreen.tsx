@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { InterviewerAvatar } from "./InterviewerAvatar";
+import type { AssistantState } from "../types";
 
 interface LiveInterviewScreenProps {
   interviewId: string;
@@ -33,8 +34,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
   const [answerText, setAnswerText] = useState<string>("");
   const [interimTranscript, setInterimTranscript] = useState<string>("");
   const [isListening, setIsListening] = useState<boolean>(false);
-  const [isReadingQuestion, setIsReadingQuestion] = useState<boolean>(false);
-  const [interviewerState, setInterviewerState] = useState<"thinking" | "question_ready">("thinking");
+  const [interviewerState, setInterviewerState] = useState<AssistantState>("thinking");
   const [timeRemaining, setTimeRemaining] = useState<number>(3600);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -45,6 +45,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const activityScrollRef = useRef<HTMLDivElement>(null);
   const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastSpokenQIdRef = useRef<string | null>(null);
 
   // Format MM:SS
   const formatTimer = (seconds: number) => {
@@ -53,7 +54,57 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // 1. Initial Start & Fetch Session State
+  // 1. Synthesize & Speak Question via TTS
+  const speakQuestionAudio = useCallback(async (text: string, qId?: string) => {
+    if (!text) return;
+    
+    // Stop any existing playing audio
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+
+    try {
+      setInterviewerState("speaking");
+      const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language: "en" }),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudioRef.current = audio;
+
+        audio.onended = () => {
+          setInterviewerState("idle");
+          if (qId) lastSpokenQIdRef.current = qId;
+        };
+
+        audio.onerror = () => {
+          setInterviewerState("idle");
+        };
+
+        await audio.play();
+      } else {
+        setInterviewerState("idle");
+      }
+    } catch {
+      setInterviewerState("idle");
+    }
+  }, []);
+
+  const stopQuestionAudio = useCallback(() => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    setInterviewerState("idle");
+  }, []);
+
+  // 2. Fetch Session State
   const fetchSessionState = useCallback(async () => {
     try {
       const res = await fetch(`http://127.0.0.1:8005/api/interview/${interviewId}/state`);
@@ -63,9 +114,6 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
         if (json.data.time_remaining !== undefined) {
           setTimeRemaining(json.data.time_remaining);
         }
-        if (json.data.current_question) {
-          setInterviewerState("question_ready");
-        }
       }
     } catch {
       // Network retry
@@ -74,6 +122,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     }
   }, [interviewId]);
 
+  // Initial Session Start & Auto-Speak Question
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
@@ -90,11 +139,20 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
           if (json.data.time_remaining !== undefined) {
             setTimeRemaining(json.data.time_remaining);
           }
-          setInterviewerState("question_ready");
+          
+          // Auto-speak opening question
+          const q = json.data.current_question;
+          if (q && q.text && lastSpokenQIdRef.current !== q.id) {
+            lastSpokenQIdRef.current = q.id;
+            speakQuestionAudio(q.text, q.id);
+          } else {
+            setInterviewerState("idle");
+          }
         }
       } catch {
         if (isMounted) {
           setErrorMsg("Failed to connect to interview session. Retrying...");
+          setInterviewerState("idle");
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -105,9 +163,9 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [interviewId]);
+  }, [interviewId, speakQuestionAudio]);
 
-  // 2. Server-Synced Countdown Timer
+  // 3. Server-Synced Countdown Timer
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setTimeRemaining((prev) => Math.max(0, prev - 1));
@@ -130,13 +188,19 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     }
   }, [session?.activity_log?.length]);
 
-  // 3. Real-Time Speech Recognition (STT) Setup
+  // 4. Real-Time Speech Recognition (STT) Setup
   const toggleListening = () => {
+    // If AI is currently speaking, stop TTS first
+    if (interviewerState === "speaking") {
+      stopQuestionAudio();
+    }
+
     if (isListening) {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       setIsListening(false);
+      setInterviewerState("idle");
       setInterimTranscript("");
       return;
     }
@@ -145,7 +209,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser. Please type your response.");
+      alert("Speech recognition is not supported in this browser. You can type your response directly.");
       return;
     }
 
@@ -157,6 +221,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
 
       recognition.onstart = () => {
         setIsListening(true);
+        setInterviewerState("listening");
         setErrorMsg(null);
       };
 
@@ -186,13 +251,15 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
         console.warn("Speech recognition notice:", event.error);
         if (event.error === "not-allowed") {
           setIsListening(false);
-          setErrorMsg("Microphone permission denied. Please allow microphone access.");
+          setInterviewerState("idle");
+          setErrorMsg("Microphone permission denied. Switched to keyboard input.");
         }
       };
 
       recognition.onend = () => {
         setIsListening(false);
         setInterimTranscript("");
+        setInterviewerState((prev) => (prev === "listening" ? "idle" : prev));
       };
 
       recognitionRef.current = recognition;
@@ -200,10 +267,11 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     } catch (e: any) {
       console.error("Speech Recognition Error:", e);
       setIsListening(false);
+      setInterviewerState("idle");
     }
   };
 
-  // Stop listening on unmount
+  // Stop audio and recognition on unmount
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
@@ -217,9 +285,9 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     };
   }, []);
 
-  // 4. Live Audio Waveform Canvas Animation
+  // 5. Live Audio Waveform Canvas Animation
   useEffect(() => {
-    if (!isListening) return;
+    if (!isListening && interviewerState !== "speaking") return;
     const canvas = waveCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -228,16 +296,18 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     let animId: number;
     let t = 0;
 
+    const isSpeaking = interviewerState === "speaking";
+
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const bars = 24;
       const barWidth = canvas.width / bars;
 
       for (let i = 0; i < bars; i++) {
-        const h = (Math.sin(t * 5 + i * 0.4) * 0.35 + 0.5) * canvas.height * 0.85;
+        const h = (Math.sin(t * (isSpeaking ? 7 : 5) + i * 0.4) * 0.35 + 0.5) * canvas.height * 0.85;
         const x = i * barWidth + barWidth * 0.15;
         const y = (canvas.height - h) / 2;
-        ctx.fillStyle = "rgba(0, 240, 255, 0.85)";
+        ctx.fillStyle = isSpeaking ? "rgba(168, 85, 247, 0.9)" : "rgba(16, 185, 129, 0.9)";
         ctx.fillRect(x, y, barWidth * 0.7, h);
       }
       t += 0.02;
@@ -246,37 +316,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
 
     draw();
     return () => cancelAnimationFrame(animId);
-  }, [isListening]);
-
-  // 5. Read Out Question via TTS
-  const handleReadQuestion = async (text: string) => {
-    if (isReadingQuestion && currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      setIsReadingQuestion(false);
-      return;
-    }
-
-    try {
-      setIsReadingQuestion(true);
-      const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, language: "en" }),
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        currentAudioRef.current = audio;
-        audio.onended = () => setIsReadingQuestion(false);
-        audio.play().catch(() => setIsReadingQuestion(false));
-      } else {
-        setIsReadingQuestion(false);
-      }
-    } catch {
-      setIsReadingQuestion(false);
-    }
-  };
+  }, [isListening, interviewerState]);
 
   // 6. Submit Candidate Answer
   const handleSubmitAnswer = async (e?: React.FormEvent) => {
@@ -290,6 +330,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
       } catch {}
       setIsListening(false);
     }
+    stopQuestionAudio();
 
     setAnswerText("");
     setInterimTranscript("");
@@ -313,15 +354,24 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
         if (json.data.time_remaining !== undefined) {
           setTimeRemaining(json.data.time_remaining);
         }
+
+        // Auto-speak next question
+        const nextQ = json.data.current_question;
+        if (nextQ && nextQ.text && json.data.status !== "complete") {
+          lastSpokenQIdRef.current = nextQ.id;
+          speakQuestionAudio(nextQ.text, nextQ.id);
+        } else {
+          setInterviewerState("idle");
+        }
       } else {
         throw new Error(json.detail || "Failed to submit answer.");
       }
     } catch (err: any) {
       setErrorMsg(err.message || "Network error. Please try resubmitting.");
       setAnswerText(finalAnswer);
+      setInterviewerState("idle");
     } finally {
       setSubmitting(false);
-      setInterviewerState("question_ready");
     }
   };
 
@@ -332,6 +382,8 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
       recognitionRef.current.stop();
       setIsListening(false);
     }
+    stopQuestionAudio();
+
     setSubmitting(true);
     setInterviewerState("thinking");
     try {
@@ -343,12 +395,18 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
       if (res.ok) {
         const json = await res.json();
         setSession(json.data);
+        const nextQ = json.data.current_question;
+        if (nextQ && nextQ.text) {
+          lastSpokenQIdRef.current = nextQ.id;
+          speakQuestionAudio(nextQ.text, nextQ.id);
+        } else {
+          setInterviewerState("idle");
+        }
       }
     } catch {
-      // Fallback
+      setInterviewerState("idle");
     } finally {
       setSubmitting(false);
-      setInterviewerState("question_ready");
     }
   };
 
@@ -356,7 +414,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 font-mono text-cyan-300">
         <div className="w-12 h-12 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-        <span className="text-sm tracking-wider uppercase">Calibrating Interview Engine...</span>
+        <span className="text-sm tracking-wider uppercase">Calibrating Voice &amp; Assessment Engine...</span>
       </div>
     );
   }
@@ -425,28 +483,42 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
             <>
               {/* Interviewer Stage Banner */}
               <div className="glass-panel p-6 sm:p-8 rounded-3xl flex flex-col items-center justify-center gap-4 text-center border border-cyan-500/35 relative overflow-hidden shadow-[0_4px_35px_rgba(0,0,0,0.5)]">
-                {/* Interviewer Avatar */}
+                {/* Interviewer Avatar Driven by 4-State Machine */}
                 <div className="scale-90">
-                  <InterviewerAvatar />
+                  <InterviewerAvatar state={interviewerState} />
                 </div>
 
-                {/* State Pill */}
+                {/* State Pill & Audio Indicator */}
                 <div className="flex items-center gap-2">
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest flex items-center gap-1.5 border transition-all ${
-                      interviewerState === "thinking"
-                        ? "bg-amber-950/80 border-amber-500/50 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]"
-                        : "bg-emerald-950/80 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]"
+                      interviewerState === "speaking"
+                        ? "bg-purple-950/80 border-purple-500/50 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.4)]"
+                        : interviewerState === "listening"
+                        ? "bg-emerald-950/80 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+                        : interviewerState === "thinking"
+                        ? "bg-amber-950/80 border-amber-500/50 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.4)]"
+                        : "bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(0,240,255,0.2)]"
                     }`}
                   >
                     <span
                       className={`w-2 h-2 rounded-full ${
-                        interviewerState === "thinking"
+                        interviewerState === "speaking"
+                          ? "bg-purple-400 animate-ping"
+                          : interviewerState === "listening"
+                          ? "bg-emerald-400 animate-ping"
+                          : interviewerState === "thinking"
                           ? "bg-amber-400 animate-pulse"
-                          : "bg-emerald-400"
+                          : "bg-cyan-400"
                       }`}
                     />
-                    {interviewerState === "thinking" ? "EVALUATING & REASONING" : "QUESTION ACTIVE"}
+                    {interviewerState === "speaking"
+                      ? "SPEAKING QUESTION (AUDIO)"
+                      : interviewerState === "listening"
+                      ? "LISTENING TO CANDIDATE"
+                      : interviewerState === "thinking"
+                      ? "EVALUATING & ADAPTING"
+                      : "READY FOR INPUT"}
                   </span>
 
                   {currentQ?.category && (
@@ -475,19 +547,25 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                       </span>
                     </div>
 
-                    {/* Read Out Question via Audio */}
+                    {/* Question Voice Controls: Play / Replay / Stop */}
                     <button
                       type="button"
-                      onClick={() => handleReadQuestion(currentQ?.text || "")}
-                      title="Speak question aloud"
+                      onClick={() => {
+                        if (interviewerState === "speaking") {
+                          stopQuestionAudio();
+                        } else {
+                          speakQuestionAudio(currentQ?.text || "", currentQ?.id);
+                        }
+                      }}
+                      title={interviewerState === "speaking" ? "Stop Audio" : "Replay Question Voice"}
                       className={`px-2.5 py-1 rounded-lg border text-[11px] font-mono transition flex items-center gap-1.5 ${
-                        isReadingQuestion
-                          ? "bg-cyan-500 text-black font-bold border-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.6)]"
+                        interviewerState === "speaking"
+                          ? "bg-purple-500 text-white font-bold border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.6)]"
                           : "bg-slate-900 border-slate-700 text-gray-300 hover:text-cyan-300"
                       }`}
                     >
-                      {isReadingQuestion ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      <span>{isReadingQuestion ? "Stop Audio" : "Play Voice"}</span>
+                      {interviewerState === "speaking" ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                      <span>{interviewerState === "speaking" ? "Stop Voice" : "Replay Voice"}</span>
                     </button>
                   </div>
 
@@ -502,7 +580,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                 onSubmit={handleSubmitAnswer}
                 className={`glass-panel p-5 rounded-2xl flex flex-col gap-3 border transition-all duration-300 shadow-lg ${
                   isListening
-                    ? "border-cyan-400 shadow-[0_0_35px_rgba(0,240,255,0.3)] bg-slate-950/95"
+                    ? "border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.3)] bg-slate-950/95"
                     : "border-cyan-500/25"
                 }`}
               >
@@ -515,8 +593,8 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
 
                     {/* Live Voice Status Pill */}
                     {isListening && (
-                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 text-[10px] animate-pulse">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-500/50 text-emerald-300 text-[10px] animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                         <span>LIVE VOICE TRANSCRIBING</span>
                       </span>
                     )}
@@ -529,7 +607,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                     className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
                       isListening
                         ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.7)] animate-pulse"
-                        : "bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/80 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                        : "bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/80 shadow-[0_0_12px_rgba(16,185,129,0.2)]"
                     }`}
                   >
                     {isListening ? (
@@ -561,24 +639,24 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                     rows={6}
                     placeholder={
                       isListening
-                        ? "🎙️ Listening to your voice in real time... Speak clearly into your mic."
+                        ? "🎙️ Listening to your speech in real time... Speak clearly into your microphone."
                         : "Type or click 'Speak' to answer by voice. Be specific about technologies, architecture, and tradeoffs..."
                     }
                     className={`w-full bg-slate-950/90 rounded-xl p-4 text-xs sm:text-sm font-sans text-gray-100 placeholder-gray-500 focus:outline-none leading-relaxed transition-all border ${
                       isListening
-                        ? "border-cyan-400/80 bg-black/80 ring-2 ring-cyan-500/20"
+                        ? "border-emerald-400/80 bg-black/80 ring-2 ring-emerald-500/20"
                         : "border-cyan-500/30 focus:border-cyan-400"
                     }`}
                   />
 
-                  {/* Inline Audio Waveform Canvas overlay while speaking */}
+                  {/* Inline Audio Waveform Canvas overlay while speaking or listening */}
                   <AnimatePresence>
-                    {isListening && (
+                    {(isListening || interviewerState === "speaking") && (
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="absolute top-3 right-4 pointer-events-none flex items-center gap-2 bg-slate-950/90 px-3 py-1 rounded-xl border border-cyan-500/40 backdrop-blur-md"
+                        className="absolute top-3 right-4 pointer-events-none flex items-center gap-2 bg-slate-950/90 px-3 py-1 rounded-xl border border-cyan-500/40 backdrop-blur-md shadow-md"
                       >
                         <canvas
                           ref={waveCanvasRef}
@@ -586,7 +664,9 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                           height={20}
                           className="rounded"
                         />
-                        <span className="text-[10px] text-cyan-300 font-mono">Listening...</span>
+                        <span className="text-[10px] text-gray-300 font-mono">
+                          {isListening ? "Listening..." : "Audio Active"}
+                        </span>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -615,15 +695,15 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Primary Big Voice Mic Button */}
+                    {/* Primary Voice Mic Button */}
                     <button
                       type="button"
                       onClick={toggleListening}
                       disabled={submitting}
                       className={`p-2.5 rounded-xl transition flex items-center justify-center ${
                         isListening
-                          ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.8)]"
-                          : "bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900 shadow-[0_0_12px_rgba(0,240,255,0.2)]"
+                          ? "bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.8)] animate-pulse"
+                          : "bg-emerald-950 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900 shadow-[0_0_12px_rgba(16,185,129,0.2)]"
                       }`}
                       title={isListening ? "Stop Voice Input" : "Start Voice Input"}
                     >
@@ -671,7 +751,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
                   Interview Assessment Complete
                 </h2>
                 <p className="text-xs text-gray-300 max-w-lg leading-relaxed font-sans">
-                  You have completed the technical question rounds. All responses and evaluations have been safely stored in the session log.
+                  You have completed the technical question rounds. All responses, transcripts, and evaluations have been safely stored in the session log.
                 </p>
               </div>
 
@@ -789,7 +869,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
             </div>
 
             <div className="pt-2 border-t border-cyan-500/10 text-[10px] text-gray-500 text-center">
-              Adaptive Evaluation Engine Active
+              Adaptive Voice &amp; Evaluation Engine Active
             </div>
           </div>
         </div>
