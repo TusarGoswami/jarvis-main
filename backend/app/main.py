@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import routes_agent, routes_system, routes_workspace, ws_stream
+from app.api import routes_agent, routes_system, routes_workspace, routes_interview, ws_stream
 
 app = FastAPI(
     title="Vocalis AI",
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(routes_agent.router, prefix="/api/agent", tags=["Agent"])
 app.include_router(routes_system.router, prefix="/api/system", tags=["System"])
 app.include_router(routes_workspace.router, tags=["Workspace"])
+app.include_router(routes_interview.router, tags=["Interview Protocol"])
 app.include_router(ws_stream.router, prefix="/ws", tags=["WebSocket"])
 
 @app.get("/")

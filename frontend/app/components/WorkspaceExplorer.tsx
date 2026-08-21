@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/set-state-in-effect */
 
 import React, { useState, useEffect } from "react";
 import { Folder, FileText, RefreshCw, Eye, Code } from "lucide-react";
@@ -45,9 +44,24 @@ export function WorkspaceExplorer() {
   };
 
   useEffect(() => {
-    fetchFiles();
-    const interval = setInterval(fetchFiles, 5000);
-    return () => clearInterval(interval);
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8005/api/workspace/files");
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          setFiles(data.entries || []);
+        }
+      } catch {
+        // Fallback
+      }
+    };
+    load();
+    const interval = setInterval(load, 5000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   return (

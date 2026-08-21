@@ -1,24 +1,11 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 
 import React from "react";
 import { CheckCircle2, ShieldCheck, ShieldAlert, Cpu, Sparkles, Volume2 } from "lucide-react";
+import type { MessageItem } from "./types";
 
-export interface MessageItem {
-  id: string;
-  sender: "user" | "vocalis";
-  text: string;
-  timestamp: string;
-  language?: string;
-  confidence?: number;
-  intent?: string;
-  actionsExecuted?: Array<{ status: string; action: string; target?: string; query?: string; message?: string; command?: string }>;
-  steps?: Array<{ step: number; thought: string; action?: string; args?: any; status: string; observation?: any }>;
-  needsConfirmation?: boolean;
-  confirmationReason?: string;
-  citations?: string[];
-  latencyMs?: number;
-}
+// Re-export for backward compatibility
+export type { MessageItem };
 
 interface ActionFeedProps {
   messages: MessageItem[];
@@ -34,7 +21,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
   onPlayAudio,
 }) => {
   return (
-    <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-4 max-h-[500px]">
+    <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-4">
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-500 font-mono text-xs gap-2">
           <Sparkles className="w-8 h-8 text-cyan-500/40 animate-pulse" />
@@ -114,7 +101,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
                 </div>
               )}
 
-              {/* Multi-Step ReAct Plan & Reasoning Trace */}
+              {/* Multi-Step ReAct Plan & Reasoning Trace (from other branch) */}
               {msg.steps && msg.steps.length > 0 && (
                 <div className="mt-3 bg-black/60 p-3 rounded-xl border border-cyan-500/20 flex flex-col gap-2 text-xs font-mono">
                   <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1">
