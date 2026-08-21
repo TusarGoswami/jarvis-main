@@ -17,6 +17,7 @@ export default function VocalisHome() {
   const [isEvalOpen, setIsEvalOpen] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const [currentAgentSteps, setCurrentAgentSteps] = useState<any[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -40,9 +41,21 @@ export default function VocalisHome() {
               if (data.stats) setStats(data.stats);
             } else if (data.type === "status") {
               if (data.state === "processing") setState("processing");
+            } else if (data.type === "step_update") {
+              setCurrentAgentSteps((prev) => {
+                const idx = prev.findIndex((s) => s.step === data.step.step);
+                if (idx > -1) {
+                  const updated = [...prev];
+                  updated[idx] = data.step;
+                  return updated;
+                } else {
+                  return [...prev, data.step];
+                }
+              });
             } else if (data.type === "turn_result") {
               const res = data.data;
               setState(data.audio_base64 && !audioMuted ? "speaking" : "idle");
+              setCurrentAgentSteps([]);
 
               const newMsg: MessageItem = {
                 id: Date.now().toString(),
@@ -53,6 +66,7 @@ export default function VocalisHome() {
                 confidence: res.confidence,
                 intent: res.intent,
                 actionsExecuted: res.actions_executed,
+                steps: res.steps,
                 needsConfirmation: res.needs_confirmation,
                 confirmationReason: res.confirmation_reason,
                 citations: res.citations,
@@ -153,6 +167,7 @@ export default function VocalisHome() {
   };
 
   const handleSendQuery = async (query: string, includeScreen: boolean, lang: string) => {
+    setCurrentAgentSteps([]);
     const userMsg: MessageItem = {
       id: Date.now().toString(),
       sender: "user",
@@ -361,6 +376,27 @@ export default function VocalisHome() {
               onCancelAction={handleCancelAction}
               onPlayAudio={handlePlayAudio}
             />
+
+            {state === "processing" && currentAgentSteps.length > 0 && (
+              <div className="mt-4 p-3 bg-cyan-950/20 border border-cyan-500/20 rounded-xl font-mono text-[11px] text-cyan-300 animate-pulse">
+                <div className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  Execution Steps In Progress:
+                </div>
+                <div className="space-y-1.5 border-l border-cyan-800/80 pl-3">
+                  {currentAgentSteps.map((st, idx) => (
+                    <div key={idx} className="flex flex-col gap-0.5">
+                      <div className="text-gray-300 italic">💭 {st.thought}</div>
+                      {st.action && (
+                        <div className="text-cyan-400 font-bold flex items-center gap-1">
+                          ⚡ Tool: {st.action} ({st.status})
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Multimodal Input Bar */}

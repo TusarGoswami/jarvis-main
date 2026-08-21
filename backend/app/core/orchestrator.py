@@ -2,7 +2,6 @@ import re
 import json
 import time
 from typing import Dict, Any, List, Optional, Callable, Awaitable
-from google import genai
 from google.genai import types
 
 from app.config import settings
@@ -12,6 +11,7 @@ from app.core.tools_registry import (
     get_tools_prompt_description
 )
 from app.core.guardrails import evaluate_guardrails
+from app.core.llm_provider import generate_multimodal_content
 
 class TaskStep(BaseModel := type("BaseModel", (), {})):
     step_number: int
@@ -95,10 +95,9 @@ async def run_react_loop(
     steps_log: List[Dict[str, Any]] = []
     actions_executed: List[Dict[str, Any]] = []
     
-    genai_client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
-    if not genai_client:
+    if not settings.GEMINI_API_KEY and not settings.GROQ_API_KEY:
         return OrchestratorResult(
-            final_text="Vocalis AI is running in offline mode. Please configure GEMINI_API_KEY in the vault.",
+            final_text="Vocalis AI is running in offline mode. Please configure GEMINI_API_KEY or GROQ_API_KEY.",
             steps=[],
             actions_executed=[],
             total_latency_ms=round((time.time() - start_time) * 1000, 2),
@@ -114,20 +113,16 @@ async def run_react_loop(
     while current_turn < max_turns:
         current_turn += 1
         
-        # Build prompt contents
-        contents = []
-        if image_bytes and current_turn == 1:
-            contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
-        
-        prompt_text = f"{system_instruction}\n\nTask Execution Log:\n{conversation_history}\nTurn {current_turn}:"
-        contents.append(prompt_text)
+        # Build prompt text
+        prompt_text = f"Task Execution Log:\n{conversation_history}\nTurn {current_turn}:"
 
         try:
-            resp = genai_client.models.generate_content(
-                model=settings.GEMINI_MODEL,
-                contents=contents
+            # Shift between Gemini and Groq automatically on rate limit/exhaustion
+            raw_output, provider = await generate_multimodal_content(
+                prompt_text=prompt_text,
+                image_bytes=image_bytes if current_turn == 1 else None,
+                system_instruction=system_instruction
             )
-            raw_output = resp.text or ""
         except Exception as e:
             return OrchestratorResult(
                 final_text=f"An error occurred while contacting the reasoning model: {str(e)}",

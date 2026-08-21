@@ -43,11 +43,22 @@ async def websocket_stream(websocket: WebSocket):
                 # Send processing indicator
                 await websocket.send_json({"type": "status", "state": "processing"})
 
+                # Define intermediate step progress streaming callback
+                async def stream_step(step_record: dict):
+                    try:
+                        await websocket.send_json({
+                            "type": "step_update",
+                            "step": step_record
+                        })
+                    except Exception:
+                        pass
+
                 # Execute multimodal turn
                 response = await process_turn(
                     user_query=query_text,
                     image_bytes=image_bytes,
-                    client_lang=lang
+                    client_lang=lang,
+                    on_step_update=stream_step
                 )
 
                 # Optional: generate TTS audio in real-time
