@@ -39,6 +39,10 @@ interface TelemetryStripProps {
   currentUser?: { id: number; email: string; display_name: string } | null;
   onOpenAuth?: () => void;
   onLogout?: () => void;
+  googleConnected?: boolean;
+  googleEmail?: string | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
 }
 
 /**
@@ -61,6 +65,10 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   currentUser,
   onOpenAuth,
   onLogout,
+  googleConnected,
+  googleEmail,
+  onConnectGoogle,
+  onDisconnectGoogle,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -231,19 +239,51 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
             <span className="hidden sm:inline">Evals</span>
           </button>
 
-          {/* User Account / Sign In Badge */}
+          {/* User Account & Google Integration */}
           {currentUser ? (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-[10px] text-cyan-200">
-              <span className="truncate max-w-[85px] font-medium">👤 {currentUser.display_name}</span>
-              {onLogout && (
-                <button
-                  onClick={onLogout}
-                  className="text-slate-400 hover:text-red-400 ml-0.5 transition cursor-pointer"
-                  title="Sign Out"
-                >
-                  ✕
-                </button>
+            <div className="flex items-center gap-1.5">
+              {/* Google OAuth Status */}
+              {googleConnected ? (
+                <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-[10px] text-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="truncate max-w-[80px]" title={googleEmail || "Connected"}>
+                    {googleEmail ? googleEmail.split("@")[0] : "Google"}
+                  </span>
+                  {onDisconnectGoogle && (
+                    <button
+                      onClick={onDisconnectGoogle}
+                      className="text-slate-400 hover:text-red-400 ml-0.5 transition cursor-pointer"
+                      title="Disconnect Google Account"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ) : (
+                onConnectGoogle && (
+                  <button
+                    onClick={onConnectGoogle}
+                    className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 hover:text-white transition text-[10px] cursor-pointer"
+                    title="Connect your Google Account for Gmail and Calendar"
+                  >
+                    <span>🔗 Google</span>
+                  </button>
+                )
               )}
+
+              {/* User Account pill */}
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-[10px] text-cyan-200">
+                <span className="truncate max-w-[85px] font-medium">👤 {currentUser.display_name}</span>
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="text-slate-400 hover:text-red-400 ml-0.5 transition cursor-pointer"
+                    title="Sign Out"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             onOpenAuth && (

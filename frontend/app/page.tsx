@@ -29,6 +29,20 @@ export default function VocalisHome() {
   // ─── User Authentication State ───
   const [currentUser, setCurrentUser] = useState<{ id: number; email: string; display_name: string } | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+
+  const checkGoogleStatus = useCallback(() => {
+    fetch("http://127.0.0.1:8005/api/auth/google/status", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          setGoogleConnected(Boolean(data.is_connected));
+          setGoogleEmail(data.google_email || null);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Check existing session on mount
   useEffect(() => {
@@ -37,10 +51,22 @@ export default function VocalisHome() {
       .then((data) => {
         if (data?.user) {
           setCurrentUser(data.user);
+          checkGoogleStatus();
         }
       })
       .catch(() => {});
-  }, []);
+  }, [checkGoogleStatus]);
+
+  // Listen for OAuth success popup messages
+  useEffect(() => {
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === "VOCALIS_GOOGLE_AUTH_SUCCESS") {
+        checkGoogleStatus();
+      }
+    };
+    window.addEventListener("message", handleAuthMessage);
+    return () => window.removeEventListener("message", handleAuthMessage);
+  }, [checkGoogleStatus]);
 
   const handleLogout = async () => {
     try {
@@ -50,6 +76,29 @@ export default function VocalisHome() {
       });
     } catch {}
     setCurrentUser(null);
+    setGoogleConnected(false);
+    setGoogleEmail(null);
+  };
+
+  const handleConnectGoogle = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8005/api/auth/google/url", { credentials: "include" });
+      const data = await res.json();
+      if (data?.auth_url) {
+        window.open(data.auth_url, "GoogleAuth", "width=600,height=700");
+      }
+    } catch {}
+  };
+
+  const handleDisconnectGoogle = async () => {
+    try {
+      await fetch("http://127.0.0.1:8005/api/auth/google/disconnect", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+    setGoogleConnected(false);
+    setGoogleEmail(null);
   };
 
   // ─── Core State ───
@@ -417,6 +466,10 @@ export default function VocalisHome() {
           currentUser={currentUser}
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
+          googleConnected={googleConnected}
+          googleEmail={googleEmail}
+          onConnectGoogle={handleConnectGoogle}
+          onDisconnectGoogle={handleDisconnectGoogle}
         />
 
         {/* ─── Mode Switching Content ─── */}
