@@ -23,6 +23,7 @@ import {
 
 import { InterviewerAvatar } from "./InterviewerAvatar";
 import { InterviewResultsDashboard } from "./InterviewResultsDashboard";
+import { getApiUrl } from "../../lib/api";
 import type { AssistantState } from "../types";
 
 interface LiveInterviewScreenProps {
@@ -67,7 +68,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
   // 1. Post Integrity Event to Backend
   const recordIntegritySignal = useCallback(async (eventType: string, durationSeconds = 0, details = "") => {
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/interview/integrity-event", {
+      const res = await fetch(getApiUrl("/api/interview/integrity-event"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -175,7 +176,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
 
     try {
       setInterviewerState("speaking");
-      const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
+      const res = await fetch(getApiUrl("/api/agent/tts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, language: "en" }),
@@ -220,7 +221,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
   // 5. Fetch Session State
   const fetchSessionState = useCallback(async () => {
     try {
-      const res = await fetch(`http://127.0.0.1:8005/api/interview/${interviewId}/state`);
+      const res = await fetch(getApiUrl(`/api/interview/${interviewId}/state`));
       if (res.ok) {
         const json = await res.json();
         setSession(json.data);
@@ -244,7 +245,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     const init = async () => {
       setLoading(true);
       try {
-        const res = await fetch("http://127.0.0.1:8005/api/interview/start", {
+        const res = await fetch(getApiUrl("/api/interview/start"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ interview_id: interviewId }),
@@ -456,7 +457,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     setErrorMsg(null);
 
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/interview/answer", {
+      const res = await fetch(getApiUrl("/api/interview/answer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -503,7 +504,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     setSubmitting(true);
     setInterviewerState("thinking");
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/interview/next-question", {
+      const res = await fetch(getApiUrl("/api/interview/next-question"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ interview_id: interviewId }),
@@ -539,7 +540,7 @@ export const LiveInterviewScreen: React.FC<LiveInterviewScreenProps> = ({
     }
 
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/interview/end", {
+      const res = await fetch(getApiUrl("/api/interview/end"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ interview_id: interviewId }),

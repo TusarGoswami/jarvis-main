@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Folder, FileText, RefreshCw, Eye, Code } from "lucide-react";
+import { getApiUrl } from "../lib/api";
 
 interface WorkspaceEntry {
   name: string;
@@ -18,7 +19,7 @@ export function WorkspaceExplorer() {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/workspace/files");
+      const res = await fetch(getApiUrl("/api/workspace/files"));
       if (res.ok) {
         const data = await res.json();
         setFiles(data.entries || []);
@@ -32,7 +33,7 @@ export function WorkspaceExplorer() {
 
   const handleOpenFile = async (filename: string) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8005/api/workspace/file?filepath=${encodeURIComponent(filename)}`);
+      const res = await fetch(getApiUrl(`/api/workspace/file?filepath=${encodeURIComponent(filename)}`));
       if (res.ok) {
         const data = await res.json();
         setSelectedFile(filename);
@@ -47,7 +48,7 @@ export function WorkspaceExplorer() {
     let isMounted = true;
     const load = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8005/api/workspace/files");
+        const res = await fetch(getApiUrl("/api/workspace/files"));
         if (res.ok && isMounted) {
           const data = await res.json();
           setFiles(data.entries || []);

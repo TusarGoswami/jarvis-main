@@ -14,9 +14,9 @@ load_dotenv(os.path.join(_ROOT_DIR, ".env"))
 class Settings(BaseModel):
     ASSISTANT_NAME: str = "Vocalis AI"
     APP_VERSION: str = "2.0.0"
-    HOST: str = "127.0.0.1"
-    PORT: int = 8005
-    DEBUG: bool = True
+    HOST: str = os.getenv("HOST", "0.0.0.0")
+    PORT: int = int(os.getenv("PORT", "8005"))
+    DEBUG: bool = os.getenv("DEBUG", "true").lower() in ("true", "1", "yes")
     WORKSPACE_DIR: str = os.path.join(_BASE_DIR, "workspace")
     
     # Model configuration
