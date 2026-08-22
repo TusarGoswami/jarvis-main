@@ -236,14 +236,21 @@ def get_system_stats() -> dict:
     }
 
 # --- GUI AUTOMATION & ACTION ENGINE ---
-import pyautogui
-pyautogui.FAILSAFE = True
+try:
+    import pyautogui
+    pyautogui.FAILSAFE = True
+except Exception:
+    pyautogui = None
+
 
 def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str = None, keys: list[str] = None) -> dict:
     """
     Executes a GUI action: click, type, hotkey, or scroll.
     x and y coordinates are target desktop coordinates.
     """
+    if not pyautogui:
+        return {"status": "error", "message": "GUI automation is unavailable in headless or non-display environment."}
+
     try:
         width, height = pyautogui.size()
         
