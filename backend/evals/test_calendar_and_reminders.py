@@ -27,7 +27,8 @@ from app.core.reminder_service import (
     _load_pending_reminders_from_db
 )
 from app.core.guardrails import evaluate_guardrails
-from engine.db import init_db, add_reminder, get_reminders, update_reminder_status, delete_reminder, get_reminder_by_id
+from engine.db import init_db, add_reminder, get_reminders, update_reminder_status, delete_reminder, get_reminder_by_id, DB_PATH
+import sqlite3
 
 
 # ==============================================================================
@@ -160,6 +161,13 @@ def test_calendar_delete_mocked(mock_get_service):
 @pytest.fixture(autouse=True)
 def setup_db():
     init_db()
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.execute("DELETE FROM reminders")
+        con.commit()
+        con.close()
+    except Exception:
+        pass
 
 
 def test_reminder_time_parsing_accuracy():
