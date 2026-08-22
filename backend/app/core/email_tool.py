@@ -347,13 +347,29 @@ def load_gmail_credentials(
 def get_gmail_service(user_id: Optional[int] = None):
     """
     Builds the authenticated Google Gmail API service client.
+    Strict Isolation:
+    - If user_id provided: requires user_oauth_tokens (no fallback to host token).
+    - If user_id is None: fallback to global token for local single-user CLI.
     """
     from googleapiclient.discovery import build
     creds = load_gmail_credentials(user_id=user_id)
     if not creds:
         if user_id is not None:
             raise RuntimeError("Google Account not connected. Please connect your Google account in Settings to send emails.")
-        raise RuntimeError("Gmail OAuth credentials not configured. Please run setup_gmail_auth.py first.")
+        
+        creds_exists = (
+            os.path.exists("credentials.json")
+            or os.path.exists(os.path.join(os.path.dirname(__file__), "..", "..", "credentials.json"))
+            or os.path.exists(os.path.join(os.path.dirname(__file__), "..", "..", "..", "credentials.json"))
+        )
+        if creds_exists:
+            raise RuntimeError(
+                "Gmail OAuth authorization required. Run '.venv\\Scripts\\python setup_gmail_auth.py' in the backend terminal once to sign into your Google account."
+            )
+        else:
+            raise RuntimeError(
+                "Gmail credentials.json not found. Please place your OAuth client credentials.json in backend/ and run setup_gmail_auth.py (or add SMTP_USER & SMTP_PASSWORD to .env)."
+            )
     return build("gmail", "v1", credentials=creds)
 
 
@@ -364,7 +380,9 @@ def send_email(
     user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Sends an email using the Gmail API (scope: gmail.send only).
+    Sends an email using either:
+    1. Gmail API (per-user OAuth if user_id, or ~/.jarvis/gmail_token.json if legacy local)
+    2. SMTP fallback (if SMTP_USER and SMTP_PASSWORD/SMTP_PASS are defined in .env and user_id is None)
     Validates recipient, enforces rate limits, encrypts secrets, and sanitizes API errors.
     """
     try:
@@ -401,21 +419,35 @@ def send_email(
         mime_msg = MIMEText(email_body, "plain", "utf-8")
         mime_msg["to"] = to_clean
         mime_msg["subject"] = email_subject
-        mime_msg["from"] = "me"
 
-        raw_encoded = base64.urlsafe_b64encode(mime_msg.as_bytes()).decode("utf-8")
+        # 4. Dispatch via Gmail API or SMTP fallback
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_pass = os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS")
 
-        # 4. Dispatch via Gmail API
-        service = get_gmail_service(user_id=user_id)
-        result = service.users().messages().send(
-            userId="me",
-            body={"raw": raw_encoded}
-        ).execute()
+        if user_id is None and smtp_user and smtp_pass and not os.path.exists(GMAIL_TOKEN_PATH):
+            import smtplib
+            smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+            smtp_port = int(os.getenv("SMTP_PORT", "587"))
+            mime_msg["from"] = smtp_user
+
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, raw_parts, mime_msg.as_string())
+            msg_id = f"SMTP_{int(time.time())}"
+        else:
+            mime_msg["from"] = "me"
+            raw_encoded = base64.urlsafe_b64encode(mime_msg.as_bytes()).decode("utf-8")
+            service = get_gmail_service(user_id=user_id)
+            result = service.users().messages().send(
+                userId="me",
+                body={"raw": raw_encoded}
+            ).execute()
+            msg_id = result.get("id", "SENT")
 
         # Record successful dispatch for rate limiter
         email_rate_limiter.record_send()
 
-        msg_id = result.get("id", "SENT")
         return {
             "status": "success",
             "action": "send_email",

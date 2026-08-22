@@ -44,6 +44,9 @@ backend/credentials.json
 client_secret*.json
 backend/client_secret*.json
 gmail_token.json
+token.json
+backend/token.json
+*token*.json
 
 # Frontend dependencies & builds
 frontend/node_modules/

@@ -13,6 +13,7 @@ import { InterviewerAvatar } from "./InterviewerAvatar";
 import { DocumentUploadCard } from "./DocumentUploadCard";
 import { PreInterviewAnalysis } from "./PreInterviewAnalysis";
 import { LiveInterviewScreen } from "./LiveInterviewScreen";
+import { getApiUrl } from "../../lib/api";
 
 const DOMAINS = [
   "Full Stack Development",
@@ -72,7 +73,7 @@ export const InterviewProtocol: React.FC = () => {
     try {
       const storedId = localStorage.getItem("vocalis_active_interview_id");
       if (storedId) {
-        fetch(`http://127.0.0.1:8005/api/interview/${storedId}/state`)
+        fetch(getApiUrl(`/api/interview/${storedId}/state`))
           .then((res) => res.json())
           .then((json) => {
             if (json.status === "success" && json.data?.status === "in_progress") {
@@ -109,7 +110,7 @@ export const InterviewProtocol: React.FC = () => {
 
     try {
       // Persist Phase 1 Intake Session
-      const res = await fetch("http://127.0.0.1:8005/api/interview/create", {
+      const res = await fetch(getApiUrl("/api/interview/create"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

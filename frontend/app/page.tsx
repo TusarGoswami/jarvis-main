@@ -16,6 +16,7 @@ import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
 import { InterviewProtocol } from "./components/interview/InterviewProtocol";
 import { ChatMode } from "./components/ChatMode";
+import { getApiUrl, getWsUrl } from "./lib/api";
 import { AuthModal } from "./components/AuthModal";
 
 // Hooks & Types
@@ -33,7 +34,7 @@ export default function VocalisHome() {
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
 
   const checkGoogleStatus = useCallback(() => {
-    fetch("http://127.0.0.1:8005/api/auth/google/status", { credentials: "include" })
+    fetch(getApiUrl("/api/auth/google/status"), { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) {
@@ -46,7 +47,7 @@ export default function VocalisHome() {
 
   // Check existing session on mount
   useEffect(() => {
-    fetch("http://127.0.0.1:8005/api/auth/me", { credentials: "include" })
+    fetch(getApiUrl("/api/auth/me"), { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.user) {
@@ -70,7 +71,7 @@ export default function VocalisHome() {
 
   const handleLogout = async () => {
     try {
-      await fetch("http://127.0.0.1:8005/api/auth/logout", {
+      await fetch(getApiUrl("/api/auth/logout"), {
         method: "POST",
         credentials: "include",
       });
@@ -82,7 +83,7 @@ export default function VocalisHome() {
 
   const handleConnectGoogle = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/auth/google/url", { credentials: "include" });
+      const res = await fetch(getApiUrl("/api/auth/google/url"), { credentials: "include" });
       const data = await res.json();
       if (data?.auth_url) {
         window.open(data.auth_url, "GoogleAuth", "width=600,height=700");
@@ -92,7 +93,7 @@ export default function VocalisHome() {
 
   const handleDisconnectGoogle = async () => {
     try {
-      await fetch("http://127.0.0.1:8005/api/auth/google/disconnect", {
+      await fetch(getApiUrl("/api/auth/google/disconnect"), {
         method: "POST",
         credentials: "include",
       });
@@ -173,7 +174,7 @@ export default function VocalisHome() {
     let ws: WebSocket;
     const connect = () => {
       try {
-        ws = new WebSocket("ws://127.0.0.1:8005/ws/stream");
+        ws = new WebSocket(getWsUrl("/ws/stream"));
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -198,7 +199,7 @@ export default function VocalisHome() {
               stopCurrentAudio();
 
               const newMsg: MessageItem = {
-                id: Date.now().toString(),
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 sender: "vocalis",
                 text: res.reply_text,
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -255,7 +256,7 @@ export default function VocalisHome() {
     // Fetch initial system telemetry via REST
     const fetchStats = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8005/api/system/stats");
+        const res = await fetch(getApiUrl("/api/system/stats"));
         if (res.ok) {
           const json = await res.json();
           setStats(json.data);
@@ -330,7 +331,7 @@ export default function VocalisHome() {
 
     setCurrentAgentSteps([]);
     const userMsg: MessageItem = {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       sender: "user",
       text: query,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -352,7 +353,7 @@ export default function VocalisHome() {
     } else {
       // Fallback REST endpoint
       try {
-        const res = await fetch("http://127.0.0.1:8005/api/agent/command", {
+        const res = await fetch(getApiUrl("/api/agent/command"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -369,7 +370,7 @@ export default function VocalisHome() {
         setRawState("idle");
 
         const vocalisMsg: MessageItem = {
-          id: (Date.now() + 1).toString(),
+          id: `vocalis-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           sender: "vocalis",
           text: resData.reply_text,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -411,7 +412,7 @@ export default function VocalisHome() {
   const handlePlayAudio = async (text: string, lang?: string) => {
     stopCurrentAudio();
     try {
-      const res = await fetch("http://127.0.0.1:8005/api/agent/tts", {
+      const res = await fetch(getApiUrl("/api/agent/tts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, language: lang || "en" }),

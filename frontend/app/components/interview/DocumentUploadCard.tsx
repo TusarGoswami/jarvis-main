@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { getApiUrl } from "../../lib/api";
 
 interface DocumentUploadCardProps {
   title: string;
@@ -56,7 +57,7 @@ export const DocumentUploadCard: React.FC<DocumentUploadCardProps> = ({
         throw new Error("No file or text provided.");
       }
 
-      const res = await fetch(`http://127.0.0.1:8005${endpoint}`, {
+      const res = await fetch(getApiUrl(endpoint), {
         method: "POST",
         body: formData,
       });

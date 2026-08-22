@@ -29,9 +29,11 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
           <span className="text-[10px] text-gray-600">Speak or type a command to initialize interactive session.</span>
         </div>
       ) : (
-        messages.map((msg) => (
+        messages.map((msg, msgIdx) => {
+          const feedKey = msg.id || `feed-msg-${msgIdx}-${msg.timestamp || Date.now()}`;
+          return (
           <div
-            key={msg.id}
+            key={feedKey}
             className={`flex flex-col gap-1.5 ${
               msg.sender === "user" ? "items-end" : "items-start"
             }`}
@@ -109,7 +111,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
                   </span>
                   <div className="space-y-2 border-l border-cyan-900/60 pl-3 ml-1">
                     {msg.steps.map((st, i) => (
-                      <div key={i} className="flex flex-col gap-1 text-[11px]">
+                      <div key={`feed-st-${feedKey}-${i}`} className="flex flex-col gap-1 text-[11px]">
                         <div className="text-white/80 italic font-sans">
                           💭 {st.thought}
                         </div>
@@ -138,7 +140,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
                     <Cpu className="w-3 h-3 text-cyan-400" /> Executed System Actions:
                   </span>
                   {msg.actionsExecuted.map((act, i) => (
-                    <div key={i} className="flex items-center gap-1.5 text-cyan-300">
+                    <div key={`feed-act-${feedKey}-${i}-${act.action}`} className="flex items-center gap-1.5 text-cyan-300">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{act.action}: <strong>{act.target || act.query || act.command || act.message || "Success"}</strong></span>
                     </div>
@@ -172,7 +174,8 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
               )}
             </div>
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
