@@ -8,6 +8,7 @@ from google.genai import types
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
 from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action, send_email
+from app.core.email_tool import parse_email_command, validate_email_format, send_email as send_email_gmail
 from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
@@ -43,6 +44,7 @@ VOCALIS_PERSONA = (
 )
 
 _client = None
+_pending_action: Optional[Dict[str, Any]] = None
 
 def get_genai_client():
     global _client
@@ -57,6 +59,7 @@ async def process_turn(
     allow_actions: bool = True,
     on_step_update: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
 ) -> AgentResponse:
+    global _pending_action
     start_time = time.time()
     q = user_query.strip()
     detected_lang = client_lang or detect_language(q)
@@ -73,7 +76,35 @@ async def process_turn(
     # Check for direct local tool triggers if no image is attached
     if not image_bytes:
         q_lower = q.lower()
-        if q_lower.startswith("open ") or q_lower.startswith("launch ") or q_lower.startswith("kholo "):
+
+        # Handle explicit authorization of pending actions
+        if (
+            q_lower == "execute authorized action"
+            or q_lower.startswith("execute authorized")
+            or q_lower in ["confirm", "authorize", "authorize action", "yes send it", "send it", "approve", "proceed", "yes, send it", "yes send"]
+        ):
+            if _pending_action:
+                pending = _pending_action
+                _pending_action = None
+                act_type = pending.get("action")
+                args = pending.get("args", {})
+                if act_type == "send_email":
+                    intent = "send_email"
+                    res = send_email_gmail(to=args.get("to"), subject=args.get("subject"), body=args.get("body"))
+                    actions_executed.append(res)
+                    if res.get("status") == "success":
+                        reply_text = f"Email successfully sent to {args.get('to')}."
+                    else:
+                        reply_text = f"Failed to send email: {res.get('message')}"
+                elif act_type == "launch":
+                    intent = "app_launch"
+                    res = launch_target(args.get("target", ""))
+                    actions_executed.append(res)
+                    reply_text = f"Opened {args.get('target', '')}."
+            else:
+                intent = "action_authorization"
+                reply_text = "No pending action awaiting authorization."
+        elif q_lower.startswith("open ") or q_lower.startswith("launch ") or q_lower.startswith("kholo "):
             target = q_lower.replace("open ", "").replace("launch ", "").replace("kholo ", "").strip()
             
             # Check for secondary compound action (e.g. "open notepad and write hello")
@@ -129,6 +160,7 @@ async def process_turn(
                         else:
                             reply_text = f"Opened {primary_target}, but email draft failed: {email_res.get('message')}."
             else:
+                _pending_action = {"action": "launch", "args": {"target": primary_target}}
                 needs_confirmation = not safe
                 confirmation_reason = reason
                 reply_text = f"Ready to open {primary_target}. Awaiting confirmation."
@@ -150,6 +182,38 @@ async def process_turn(
             stats = get_system_stats()
             actions_executed.append({"status": "success", "action": "system_stats", "data": stats})
             reply_text = f"CPU is at {stats['cpu_percent']}%, and RAM usage is {stats['ram_percent']}% ({stats['ram_used_gb']}GB of {stats['ram_total_gb']}GB)."
+        elif (
+            q_lower.startswith("send a mail")
+            or q_lower.startswith("send an email")
+            or q_lower.startswith("send mail")
+            or q_lower.startswith("send email")
+            or q_lower.startswith("email ")
+            or (("@" in q_lower or "mail" in q_lower) and ("send" in q_lower or "email" in q_lower))
+        ):
+            intent = "send_email"
+            parsed = parse_email_command(q)
+            to_addr = parsed.get("to")
+            subject = parsed.get("subject") or "Message from Vocalis AI"
+            body = parsed.get("body") or ""
+
+            if not to_addr:
+                confidence = 0.90
+                reply_text = "Who would you like me to send the email to? Please provide the recipient's email address."
+            elif not validate_email_format(to_addr):
+                confidence = 0.85
+                reply_text = f"The recipient email address '{to_addr}' is invalid. Please provide a valid email format."
+            else:
+                safe, reason = evaluate_guardrails(
+                    intent="send_email",
+                    action_data={"to": to_addr, "subject": subject, "body": body},
+                    confidence=confidence,
+                    tool_name="send_email",
+                    tool_args={"to": to_addr, "subject": subject, "body": body}
+                )
+                _pending_action = {"action": "send_email", "args": {"to": to_addr, "subject": subject, "body": body}}
+                needs_confirmation = not safe
+                confirmation_reason = reason
+                reply_text = f"Ready to send email to {to_addr} with subject '{subject}'. Awaiting your confirmation."
 
     # If already handled by deterministic tools
     if reply_text:
