@@ -9,6 +9,8 @@ from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
 from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action, send_email
 from app.core.email_tool import parse_email_command, validate_email_format, send_email as send_email_gmail
+from app.core.calendar_tool import parse_calendar_command, check_calendar, create_event, delete_event
+from app.core.reminder_service import parse_reminder_command, create_reminder, list_reminders, cancel_reminder
 from app.core.orchestrator import run_react_loop
 from app.core.rag import rag_store
 from app.core.guardrails import evaluate_guardrails
@@ -81,7 +83,7 @@ async def process_turn(
         if (
             q_lower == "execute authorized action"
             or q_lower.startswith("execute authorized")
-            or q_lower in ["confirm", "authorize", "authorize action", "yes send it", "send it", "approve", "proceed", "yes, send it", "yes send"]
+            or q_lower in ["confirm", "authorize", "authorize action", "yes send it", "send it", "approve", "proceed", "yes, send it", "yes send", "confirm create", "yes schedule", "schedule it"]
         ):
             if _pending_action:
                 pending = _pending_action
@@ -96,6 +98,29 @@ async def process_turn(
                         reply_text = f"Email successfully sent to {args.get('to')}."
                     else:
                         reply_text = f"Failed to send email: {res.get('message')}"
+                elif act_type in ("create_event", "calendar_create"):
+                    intent = "calendar_create"
+                    res = create_event(
+                        title=args.get("title", "Meeting"),
+                        start_time=args.get("start_time", ""),
+                        end_time=args.get("end_time"),
+                        attendees=args.get("attendees"),
+                        description=args.get("description"),
+                        duration_minutes=args.get("duration_minutes", 30)
+                    )
+                    actions_executed.append(res)
+                    if res.get("status") == "success":
+                        reply_text = res.get("message", f"Calendar event '{args.get('title')}' created.")
+                    else:
+                        reply_text = f"Failed to create calendar event: {res.get('message')}"
+                elif act_type in ("delete_event", "calendar_delete"):
+                    intent = "calendar_delete"
+                    res = delete_event(event_id=args.get("event_id", ""))
+                    actions_executed.append(res)
+                    if res.get("status") == "success":
+                        reply_text = res.get("message", "Calendar event deleted.")
+                    else:
+                        reply_text = f"Failed to delete calendar event: {res.get('message')}"
                 elif act_type == "launch":
                     intent = "app_launch"
                     res = launch_target(args.get("target", ""))
@@ -214,6 +239,93 @@ async def process_turn(
                 needs_confirmation = not safe
                 confirmation_reason = reason
                 reply_text = f"Ready to send email to {to_addr} with subject '{subject}'. Awaiting your confirmation."
+        
+        # Calendar Management Intent
+        elif any(p in q_lower for p in ["calendar", "schedule a meeting", "schedule meeting", "am i free", "what's on my schedule", "whats on my schedule", "my schedule", "book a meeting", "cancel meeting", "cancel my meeting"]):
+            parsed_cal = parse_calendar_command(q)
+            cal_action = parsed_cal.get("action")
+            if cal_action == "check":
+                intent = "calendar_check"
+                res = check_calendar(date_range=parsed_cal.get("date_range"))
+                actions_executed.append(res)
+                reply_text = res.get("message", "Checked your calendar.")
+                if res.get("events"):
+                    event_lines = []
+                    for ev in res["events"][:5]:
+                        start_str = ev.get("start", "")
+                        summary = ev.get("summary", "Event")
+                        event_lines.append(f"• {summary} ({start_str})")
+                    reply_text += "\n" + "\n".join(event_lines)
+            elif cal_action == "create":
+                intent = "calendar_create"
+                safe, reason = evaluate_guardrails(
+                    intent="create_event",
+                    action_data=parsed_cal,
+                    confidence=confidence,
+                    tool_name="create_event",
+                    tool_args=parsed_cal
+                )
+                _pending_action = {"action": "create_event", "args": parsed_cal}
+                needs_confirmation = not safe
+                confirmation_reason = reason
+                reply_text = f"Ready to schedule '{parsed_cal.get('title')}' for {parsed_cal.get('start_time')}. Awaiting your confirmation."
+            elif cal_action == "delete":
+                intent = "calendar_delete"
+                safe, reason = evaluate_guardrails(
+                    intent="delete_event",
+                    action_data=parsed_cal,
+                    confidence=confidence,
+                    tool_name="delete_event",
+                    tool_args=parsed_cal
+                )
+                _pending_action = {"action": "delete_event", "args": parsed_cal}
+                needs_confirmation = not safe
+                confirmation_reason = reason
+                reply_text = f"Ready to cancel calendar event. Awaiting your confirmation."
+
+        # Reminders & Task Management Intent (Local only, no external API)
+        elif (
+            q_lower.startswith("remind me")
+            or q_lower.startswith("set a reminder")
+            or q_lower.startswith("set reminder")
+            or "reminder" in q_lower
+        ):
+            parsed_rem = parse_reminder_command(q)
+            rem_action = parsed_rem.get("action")
+            if rem_action == "list":
+                intent = "list_reminders"
+                res = list_reminders(status_filter="pending")
+                actions_executed.append(res)
+                reply_text = res.get("message", "Retrieved your reminders.")
+                if res.get("reminders"):
+                    rem_lines = [f"• #{r['id']}: {r['text']} (Due: {r['due_time']})" for r in res["reminders"][:5]]
+                    reply_text += "\n" + "\n".join(rem_lines)
+            elif rem_action == "cancel":
+                intent = "cancel_reminder"
+                rem_id = parsed_rem.get("reminder_id")
+                if rem_id:
+                    res = cancel_reminder(reminder_id=rem_id)
+                    actions_executed.append(res)
+                    reply_text = res.get("message", f"Cancelled reminder #{rem_id}.")
+                else:
+                    res = list_reminders(status_filter="pending")
+                    actions_executed.append(res)
+                    if res.get("reminders"):
+                        rem_to_cancel = res["reminders"][0]
+                        c_res = cancel_reminder(reminder_id=rem_to_cancel["id"])
+                        actions_executed.append(c_res)
+                        reply_text = f"Cancelled reminder #{rem_to_cancel['id']}: '{rem_to_cancel['text']}'."
+                    else:
+                        reply_text = "No active reminders found to cancel."
+            else:
+                # Create reminder (local only, no confirmation needed)
+                intent = "create_reminder"
+                res = create_reminder(text=parsed_rem.get("text", "Reminder"), due_time=parsed_rem.get("due_time", "in 1 hour"))
+                actions_executed.append(res)
+                if res.get("status") == "success":
+                    reply_text = res.get("message", f"Reminder set: '{parsed_rem.get('text')}'.")
+                else:
+                    reply_text = f"Failed to set reminder: {res.get('message')}"
 
     # If already handled by deterministic tools
     if reply_text:
