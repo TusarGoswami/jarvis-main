@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Square } from "lucide-react";
 
 // Components
 import { ParticleBackground } from "./components/ParticleBackground";
@@ -30,6 +31,7 @@ export default function VocalisHome() {
   const [isWsConnected, setIsWsConnected] = useState(false);
   const [currentAgentSteps, setCurrentAgentSteps] = useState<any[]>([]);
   const [audioMuted, setAudioMuted] = useState(false);
+  const [maxTokens, setMaxTokens] = useState<number>(150);
   const [isEvalOpen, setIsEvalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -261,6 +263,7 @@ export default function VocalisHome() {
           include_screen: includeScreen,
           language: lang === "auto" ? undefined : lang,
           turn_id: turnId,
+          max_tokens: maxTokens,
         })
       );
     } else {
@@ -273,6 +276,7 @@ export default function VocalisHome() {
             query: query,
             language: lang === "auto" ? undefined : lang,
             allow_actions: true,
+            max_tokens: maxTokens,
           }),
         });
         const resData = await res.json();
@@ -371,6 +375,10 @@ export default function VocalisHome() {
           onOpenEvals={() => setIsEvalOpen(true)}
           appMode={appMode}
           onModeChange={setAppMode}
+          isSpeaking={effectiveState === "speaking"}
+          onStopTalking={stopCurrentAudio}
+          maxTokens={maxTokens}
+          onMaxTokensChange={setMaxTokens}
         />
 
         {/* ─── Mode Switching Content ─── */}
@@ -434,6 +442,23 @@ export default function VocalisHome() {
                   {effectiveState === "speaking" && "Responding..."}
                   {effectiveState === "tool_use" && "Autonomous tool execution active..."}
                 </motion.p>
+
+                {/* Prominent floating Stop Talking Button when speaking */}
+                <AnimatePresence>
+                  {effectiveState === "speaking" && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                      onClick={stopCurrentAudio}
+                      className="mt-4 px-6 py-2.5 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-purple-600 text-white font-mono font-bold text-xs shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:scale-105 transition-all flex items-center gap-2 border border-red-400/50 cursor-pointer z-30 tracking-wider"
+                      title="Stop audio playback"
+                    >
+                      <Square className="w-4 h-4 fill-white" />
+                      <span>STOP TALKING</span>
+                    </motion.button>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Voice input bar (fixed bottom center) */}
@@ -441,6 +466,9 @@ export default function VocalisHome() {
                 onSendQuery={handleSendQuery}
                 onToggleListening={toggleListening}
                 isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
+                onStopTalking={stopCurrentAudio}
+                maxTokens={maxTokens}
+                onMaxTokensChange={setMaxTokens}
               />
 
               {/* Activity & Workspace drawer (slide-in from right) */}

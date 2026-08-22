@@ -169,7 +169,8 @@ def generate_gemini_content_sync(
 async def generate_multimodal_content(
     prompt_text: str,
     image_bytes: Optional[bytes] = None,
-    system_instruction: Optional[str] = None
+    system_instruction: Optional[str] = None,
+    max_tokens: Optional[int] = None
 ) -> Tuple[str, str]:
     """
     Generates content using Gemini with automatic multi-key failover and circuit breaker protection,
@@ -178,6 +179,8 @@ async def generate_multimodal_content(
     import asyncio
     loop = asyncio.get_event_loop()
 
+    token_limit = max_tokens or settings.MAX_OUTPUT_TOKENS
+
     contents = []
     if image_bytes:
         contents.append(
@@ -185,10 +188,10 @@ async def generate_multimodal_content(
         )
     contents.append(prompt_text)
 
-    config_args = {}
+    config_args = {"max_output_tokens": token_limit}
     if system_instruction:
         config_args["system_instruction"] = system_instruction
-    cfg = types.GenerateContentConfig(**config_args) if config_args else None
+    cfg = types.GenerateContentConfig(**config_args)
 
     # 1. Try Gemini if circuit allows
     if gemini_circuit_breaker.can_attempt():
@@ -245,8 +248,9 @@ async def generate_multimodal_content(
                         model=groq_model,
                         messages=messages,
                         temperature=0.7,
-                        max_tokens=1024
+                        max_tokens=token_limit
                     )
+
 
                 chat_completion = await loop.run_in_executor(None, _call_groq)
                 text = chat_completion.choices[0].message.content

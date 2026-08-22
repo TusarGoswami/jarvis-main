@@ -34,6 +34,7 @@ async def websocket_stream(websocket: WebSocket):
                 custom_image = data.get("image_base64")
                 lang = data.get("language")
                 turn_id = data.get("turn_id")
+                max_tokens = data.get("max_tokens")
 
                 image_bytes = None
                 if attach_screen:
@@ -60,6 +61,7 @@ async def websocket_stream(websocket: WebSocket):
                     user_query=query_text,
                     image_bytes=image_bytes,
                     client_lang=lang,
+                    max_tokens=max_tokens,
                     on_step_update=stream_step
                 )
 
