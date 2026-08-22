@@ -6,7 +6,6 @@ import time
 import webbrowser
 import psutil
 import socket
-import pygetwindow as gw
 from urllib.parse import quote
 import sqlite3
 
