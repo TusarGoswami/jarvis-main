@@ -101,6 +101,28 @@ python run_vocalis.py
 
 ---
 
+## 📧 Secure Email Dispatch (Gmail API / OAuth)
+
+Vocalis AI includes real-world, hardened email sending capabilities with zero compromise on safety:
+- **OAuth Scope Minimization**: Restricted to `https://www.googleapis.com/auth/gmail.send` only (never requests inbox/read access).
+- **Encrypted Token at Rest**: OAuth refresh tokens and secrets are encrypted with Fernet keys via the internal Vault before being stored in `~/.jarvis/gmail_token.json`.
+- **Guardrails Confirmation Gate**: Email actions require explicit human confirmation before sending (`CONFIRM ACTION: Send Email`).
+- **Rate Limiting**: Sliding-window rate limiter prevents spam or runaway loops (max 5 sends/minute).
+- **Sanitized Logging**: All API error traces are redacted of sensitive keys/tokens.
+
+### One-Time OAuth Setup
+1. Open [Google Cloud Console](https://console.cloud.google.com) and create/select a project.
+2. Enable the **Gmail API** under APIs & Services.
+3. Configure the OAuth Consent Screen and create an **OAuth 2.0 Client ID** with Application type **Desktop Application**.
+4. Download the client secret JSON file (rename to `credentials.json` or pass path as argument).
+5. Run the setup script:
+```bash
+python backend/setup_gmail_auth.py credentials.json
+```
+A browser prompt will request one-time approval for the `gmail.send` scope and securely save the encrypted refresh token.
+
+---
+
 ## 🧪 Hackathon Rubric Alignment
 
 | Criterion | Vocalis AI Implementation |
