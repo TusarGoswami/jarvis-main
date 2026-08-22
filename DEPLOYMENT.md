@@ -1,20 +1,25 @@
-# 🚀 Vocalis AI — Production Deployment Guide
+# 🚀 Vocalis AI — Complete Production Deployment Guide
 
-This guide covers deploying the **Vocalis AI Backend to AWS** (using AWS App Runner / ECS) and the **Frontend to Vercel**.
+This guide provides the exact step-by-step instructions for deploying **Vocalis AI**:
+- **Backend**: FastAPI + Uvicorn + WebSockets running on **AWS (App Runner or Render/Railway/EC2)**.
+- **Frontend**: Next.js 15 App Router deployed on **Vercel**.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-- **Backend**: FastAPI + Uvicorn + WebSockets running inside an optimized Docker container on AWS (App Runner or ECS Fargate).
-- **Frontend**: Next.js 15 App Router deployed on Vercel Edge Network.
-- **Communication**: Frontend connects to the AWS Backend via HTTPS REST endpoints and WSS (secure WebSockets).
+```
+Frontend (Vercel Edge)  ──HTTPS REST──>  Backend (AWS / Render / EC2 on Port 8005)
+                        ──WSS Stream───>  WebSocket /ws/stream
+```
 
 ---
 
-## 1. 🌐 Deploying Backend to AWS
+## 1. 🌐 Step 1: Deploy Backend (AWS App Runner / Render)
 
-### Option A: AWS App Runner (Fastest & Simplest — Automatic HTTPS + WebSockets)
+You can deploy the backend using **AWS App Runner** (recommended for AWS) or **Render / Railway** (simplest 1-click container deployment).
+
+### Option A: AWS App Runner (Recommended for AWS)
 
 1. **Push Backend Image to Amazon ECR**:
    ```bash
@@ -35,62 +40,77 @@ This guide covers deploying the **Vocalis AI Backend to AWS** (using AWS App Run
 2. **Create App Runner Service**:
    - Go to the **AWS App Runner Console** → **Create Service**.
    - **Source**: Select *Container Registry* → *Amazon ECR* → Choose `vocalis-backend:latest`.
-   - **Port**: `8005` (or leave default `$PORT`).
+   - **Port**: `8005`.
    - **Environment Variables**:
-     ```
+     ```env
      HOST=0.0.0.0
      PORT=8005
      DEBUG=false
-     GEMINI_API_KEY=<your_gemini_key>
-     GROQ_API_KEY=<your_groq_key>
+     GEMINI_API_KEY=<your_gemini_api_key>
+     GROQ_API_KEY=<your_groq_api_key>
+     GOOGLE_CLIENT_ID=<your_google_client_id>
+     GOOGLE_CLIENT_SECRET=<your_google_client_secret>
      ```
    - Click **Create & Deploy**.
    - Copy your service URL (e.g. `https://xxxxxx.us-east-1.awsapprunner.com`).
 
 ---
 
-### Option B: AWS ECS Fargate + Application Load Balancer
+### Option B: Render / Railway (Zero CLI Alternative)
 
-1. **Build & Push to ECR** as shown above.
-2. **Create ECS Task Definition**:
-   - Image: `<aws_account_id>.dkr.ecr.<region>.amazonaws.com/vocalis-backend:latest`
-   - Port Mapping: `8005` TCP
-   - Health Check: `curl -f http://localhost:8005/ || exit 1`
-3. **Attach to Application Load Balancer (ALB)**:
-   - Target Group: Port `8005`, HTTP protocol.
-   - Enable stickiness / WebSocket support on the ALB listener.
+1. Go to [render.com](https://render.com) or [railway.app](https://railway.app).
+2. Click **New Web Service** → Connect your GitHub repo (`TusarGoswami/jarvis-main`).
+3. Set **Root Directory**: `backend` (or choose Dockerfile).
+4. Set **Port**: `8005`.
+5. Add the Environment Variables (`GEMINI_API_KEY`, `GROQ_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+6. Deploy and copy your backend URL (e.g. `https://vocalis-backend.onrender.com`).
 
 ---
 
-## 2. ▲ Deploying Frontend to Vercel
+## 2. ▲ Step 2: Deploy Frontend to Vercel
 
 1. **Import Git Repository**:
-   - Go to [vercel.com](https://vercel.com) → **Add New Project** → Select your GitHub repository (`Hridayesh68/jarvis-main`).
-   - Set **Root Directory**: `frontend`.
+   - Go to [vercel.com](https://vercel.com) → **Add New Project**.
+   - Select your GitHub repository (`TusarGoswami/jarvis-main`).
+   - In **Root Directory**, click *Edit* and select: `frontend`.
 
 2. **Configure Environment Variables in Vercel**:
-   Add the following in the Vercel Project Settings:
+   In the **Environment Variables** accordion, add:
 
-   | Variable | Value Example | Description |
-   |---|---|---|
-   | `NEXT_PUBLIC_BACKEND_URL` | `https://xxxxxx.us-east-1.awsapprunner.com` | Your AWS Backend HTTPS URL |
-   | `NEXT_PUBLIC_WS_URL` | `wss://xxxxxx.us-east-1.awsapprunner.com/ws/stream` | Secure WebSocket endpoint |
-   | `NEXT_PUBLIC_SUPABASE_URL` | `https://nwabikfqyanjydplpqab.supabase.co` | Supabase URL |
-   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `<your_supabase_key>` | Supabase Public Key |
+   | Variable Name | Value (Example) | Description |
+   |:---|:---|:---|
+   | `NEXT_PUBLIC_BACKEND_URL` | `https://xxxxxx.us-east-1.awsapprunner.com` | Your live HTTPS backend URL (without trailing slash) |
+   | `NEXT_PUBLIC_WS_URL` | `wss://xxxxxx.us-east-1.awsapprunner.com/ws/stream` | Your live WSS WebSocket endpoint |
 
 3. **Deploy**:
-   - Click **Deploy**. Vercel will automatically build and deploy the Next.js frontend with 0 configuration.
+   - Click **Deploy**.
+   - Vercel will automatically build the Next.js app and assign a live production URL (e.g. `https://jarvis-main-xyz.vercel.app`).
 
 ---
 
-## 3. 🐳 Local Docker Testing
+## 3. 🔗 Step 3: Configure Google OAuth Redirect URI
 
-To test the entire containerized stack locally before deploying to AWS/Vercel:
+Once you have your production Frontend & Backend URLs:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services** → **Credentials**.
+2. Click on your **OAuth 2.0 Client ID**.
+3. Under **Authorized JavaScript origins**, add:
+   - Your frontend URL (e.g. `https://jarvis-main-xyz.vercel.app`)
+   - `http://localhost:3000` (for local dev)
+4. Under **Authorized redirect URIs**, add:
+   - `<YOUR_BACKEND_URL>/api/auth/google/callback` (e.g. `https://xxxxxx.us-east-1.awsapprunner.com/api/auth/google/callback`)
+   - `http://localhost:8005/api/auth/google/callback`
+5. Click **Save**.
+
+---
+
+## 4. 🐳 Step 4: Local Full-Stack Docker Verification (Optional)
+
+You can run both containers simultaneously locally to verify production readiness:
 
 ```bash
 docker compose up --build
 ```
-
-- **Frontend**: `http://localhost:3000`
-- **Backend API**: `http://localhost:8005`
-- **API Docs (Swagger)**: `http://localhost:8005/docs`
+- **Frontend**: [http://localhost:3000](http://localhost:3000)
+- **Backend API**: [http://localhost:8005](http://localhost:8005)
+- **Interactive Swagger Docs**: [http://localhost:8005/docs](http://localhost:8005/docs)
