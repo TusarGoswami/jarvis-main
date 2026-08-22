@@ -110,16 +110,31 @@ Vocalis AI includes real-world, hardened email sending capabilities with zero co
 - **Rate Limiting**: Sliding-window rate limiter prevents spam or runaway loops (max 5 sends/minute).
 - **Sanitized Logging**: All API error traces are redacted of sensitive keys/tokens.
 
-### One-Time OAuth Setup
-1. Open [Google Cloud Console](https://console.cloud.google.com) and create/select a project.
-2. Enable the **Gmail API** under APIs & Services.
-3. Configure the OAuth Consent Screen and create an **OAuth 2.0 Client ID** with Application type **Desktop Application**.
-4. Download the client secret JSON file (rename to `credentials.json` or pass path as argument).
-5. Run the setup script:
+---
+
+## 📅 Google Calendar & ⏰ Local Reminders
+
+Vocalis AI integrates Google Calendar scheduling and local task reminders:
+
+### 1. Google Calendar Integration
+- **Unified OAuth Flow**: Extends the existing Google OAuth setup with `calendar.events` and `calendar.readonly` scopes.
+- **Read-Only Safety**: Inspecting schedules ("What's on my calendar today?") executes safely without blocking.
+- **Mutating Action Guardrails**: Creating or canceling calendar events triggers a formatted confirmation card requiring explicit human confirmation.
+- **Flexible Natural Language Parsing**: Handles queries like *"Schedule a meeting with John tomorrow at 3pm for 30 minutes"* and defaults missing durations to 30 minutes.
+
+### 2. Local Reminders & Task Management
+- **Local SQLite Engine**: Stores task reminders in `jarvis.db` (`reminders` table) with full persistence across backend restarts.
+- **APScheduler Background Trigger**: Dispatches reminders at their designated timestamp.
+- **Activity Feed & Vocal Feedback**: Alerts the user both visually and vocally via the unified TTS pipeline.
+- **Natural Time Parsing**: Resolves relative expressions (*"in 20 minutes"*, *"tomorrow at 9am"*, *"at 5pm"*) with zero external API dependency.
+
+### One-Time OAuth Setup (Gmail + Calendar)
+1. Open [Google Cloud Console](https://console.cloud.google.com) and enable **Gmail API** and **Google Calendar API**.
+2. Run the unified setup script:
 ```bash
 python backend/setup_gmail_auth.py credentials.json
 ```
-A browser prompt will request one-time approval for the `gmail.send` scope and securely save the encrypted refresh token.
+A browser prompt will request approval for the combined Gmail & Calendar scopes and securely save the encrypted refresh token.
 
 ---
 
