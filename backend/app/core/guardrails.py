@@ -32,7 +32,20 @@ def evaluate_guardrails(
     args = tool_args or {}
     action_type = tool_name or data.get("action", intent)
     
-    # 1. Check destructive action names
+    # 1. Check email sending confirmation
+    if action_type in ("send_email", "email_send"):
+        to_addr = args.get("to") or data.get("to") or args.get("recipient_email") or data.get("recipient_email") or args.get("recipient_name") or data.get("recipient_name") or "unspecified"
+        subject = args.get("subject") or data.get("subject") or "Message from Vocalis AI"
+        body = args.get("body") or data.get("body") or ""
+        reason = (
+            f"CONFIRM ACTION: Send Email\n"
+            f"To: {to_addr}\n"
+            f"Subject: {subject}\n"
+            f"Body: \"{body}\""
+        )
+        return False, reason
+
+    # 2. Check destructive action names
     if action_type in DESTRUCTIVE_ACTIONS:
         return False, f"Critical action '{action_type}' requires explicit human authorization."
 

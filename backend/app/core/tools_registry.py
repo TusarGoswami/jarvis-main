@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from app.core.fs_tools import fs_read, fs_write, fs_edit, fs_list, fs_delete
 from app.core.terminal_tool import execute_terminal_command
 from app.core.web_tool import search_and_scrape
-from app.core.tools import execute_gui_action, launch_target, get_system_stats, send_email
+from app.core.tools import execute_gui_action, launch_target, get_system_stats
+from app.core.email_tool import send_email
 
 class ToolDefinition(BaseModel):
     name: str
@@ -138,16 +139,18 @@ TOOLS_MANIFEST: Dict[str, ToolDefinition] = {
     ),
     "send_email": ToolDefinition(
         name="send_email",
-        description="Sends an email message to a named contact in the database.",
+        description="Sends an email via Gmail API to a specified recipient address with subject and body.",
         parameters={
             "type": "object",
             "properties": {
-                "recipient_name": {"type": "string", "description": "The name of the contact"},
+                "to": {"type": "string", "description": "The recipient email address (e.g. 'user@example.com')"},
+                "subject": {"type": "string", "description": "Subject line of the email"},
                 "body": {"type": "string", "description": "Body content of the email"}
             },
-            "required": ["recipient_name", "body"]
+            "required": ["to", "body"]
         },
-        risk_level="medium"
+        risk_level="high",
+        requires_approval=True
     ),
     "screenshot": ToolDefinition(
         name="screenshot",
@@ -202,7 +205,10 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
             stats = get_system_stats()
             return {"status": "success", "action": "system_telemetry", "data": stats}
         elif tool_name == "send_email":
-            return send_email(recipient_name=arguments.get("recipient_name"), body=arguments.get("body"))
+            to_addr = arguments.get("to") or arguments.get("recipient_email") or arguments.get("recipient_name") or ""
+            subj = arguments.get("subject")
+            body_text = arguments.get("body", "")
+            return send_email(to=to_addr, subject=subj, body=body_text)
         elif tool_name in ["screenshot", "observe_screen"]:
             from app.core.multimodal import capture_screen_bytes
             s_bytes = capture_screen_bytes()
