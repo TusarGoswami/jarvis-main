@@ -17,13 +17,18 @@ CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly"
 ]
 
-def get_calendar_service():
+def get_calendar_service(user_id: Optional[int] = None):
     """
     Builds the authenticated Google Calendar API v3 client.
+    Strict Isolation:
+    - If user_id provided: requires user_oauth_tokens (no fallback to host token).
+    - If user_id is None: fallback to global token for local single-user CLI.
     """
     from googleapiclient.discovery import build
-    creds = load_gmail_credentials()
+    creds = load_gmail_credentials(user_id=user_id)
     if not creds:
+        if user_id is not None:
+            raise RuntimeError("Google Account not connected. Please connect your Google account in Settings to access calendar events.")
         raise RuntimeError("Google Calendar OAuth credentials not configured. Please run setup_gmail_auth.py to authorize Calendar scopes.")
     return build("calendar", "v3", credentials=creds)
 
@@ -74,13 +79,17 @@ def format_delete_confirmation_reason(event_id: str, title: Optional[str] = None
     )
 
 
-def check_calendar(date_range: Optional[str] = None, max_results: int = 10) -> Dict[str, Any]:
+def check_calendar(
+    date_range: Optional[str] = None,
+    max_results: int = 10,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
     """
     Retrieves events from the user's primary Google Calendar.
     Read-only action; safe to execute automatically without confirmation.
     """
     try:
-        service = get_calendar_service()
+        service = get_calendar_service(user_id=user_id)
 
         now = datetime.now()
         time_min = now
@@ -160,14 +169,15 @@ def create_event(
     end_time: Optional[str] = None,
     attendees: Optional[List[str]] = None,
     description: Optional[str] = None,
-    duration_minutes: int = 30
+    duration_minutes: int = 30,
+    user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Creates a new Google Calendar event.
     Mutating action; requires human confirmation before execution.
     """
     try:
-        service = get_calendar_service()
+        service = get_calendar_service(user_id=user_id)
 
         start_dt = parse_datetime_flexible(start_time)
         if not start_dt:
@@ -263,7 +273,7 @@ def create_event(
         }
 
 
-def delete_event(event_id: str) -> Dict[str, Any]:
+def delete_event(event_id: str, user_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Deletes a Google Calendar event by ID and cancels any auto-linked local voice alert reminder.
     Mutating action; requires human confirmation before execution.
@@ -276,7 +286,7 @@ def delete_event(event_id: str) -> Dict[str, Any]:
                 "message": "Event ID is required to delete a calendar event."
             }
 
-        service = get_calendar_service()
+        service = get_calendar_service(user_id=user_id)
         clean_event_id = event_id.strip()
         service.events().delete(calendarId="primary", eventId=clean_event_id).execute()
 

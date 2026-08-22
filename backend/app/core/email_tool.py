@@ -212,6 +212,49 @@ DEFAULT_GOOGLE_SCOPES = [
 ]
 
 
+def get_vocalis_app_credentials() -> tuple[Optional[str], Optional[str]]:
+    """
+    Retrieves the shared Vocalis AI Google OAuth application client_id and client_secret.
+    Checks environment variables, credentials.json, and legacy token storage.
+    """
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    if client_id and client_secret:
+        return client_id.strip(), client_secret.strip()
+
+    # Search for credentials.json in backend/ or project root
+    for path in [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "credentials.json"),
+        "credentials.json"
+    ]:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                info = data.get("installed") or data.get("web") or data
+                cid = info.get("client_id")
+                csec = info.get("client_secret")
+                if cid and csec:
+                    return cid.strip(), csec.strip()
+            except Exception:
+                pass
+
+    # Fallback to legacy decrypted storage if present
+    if os.path.exists(GMAIL_TOKEN_PATH):
+        try:
+            with open(GMAIL_TOKEN_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            cid = decrypt_data(data.get("client_id"))
+            csec = decrypt_data(data.get("client_secret"))
+            if cid and csec:
+                return cid.strip(), csec.strip()
+        except Exception:
+            pass
+
+    return None, None
+
+
 def save_gmail_credentials(
     refresh_token: str,
     client_id: str,
@@ -235,17 +278,43 @@ def save_gmail_credentials(
     return target_path
 
 
-def load_gmail_credentials(token_path: Optional[str] = None) -> Optional[Any]:
+def load_gmail_credentials(
+    user_id: Optional[int] = None,
+    token_path: Optional[str] = None
+) -> Optional[Any]:
     """
-    Loads and decrypts Gmail & Calendar OAuth credentials from storage, creating
-    a valid Google Credentials object for automatic token refreshing.
+    Loads and decrypts Gmail & Calendar OAuth credentials, returning a valid Google Credentials object.
+    
+    Strict Isolation:
+    - If user_id is provided: Loads the specific user's credentials from user_oauth_tokens table.
+      If not found, returns None (NO silent fallback to global token).
+    - If user_id is None: Falls back to legacy global GMAIL_TOKEN_PATH for local CLI/unauthenticated workflows.
     """
-    target_path = token_path or GMAIL_TOKEN_PATH
-    if not os.path.exists(target_path):
-        return None
-
     try:
         from google.oauth2.credentials import Credentials
+        from engine.db import get_user_oauth_token
+
+        # 1. Authenticated User Context
+        if user_id is not None:
+            user_oauth = get_user_oauth_token(user_id)
+            if not user_oauth or not user_oauth.get("refresh_token"):
+                return None
+
+            client_id, client_secret = get_vocalis_app_credentials()
+            return Credentials(
+                None,
+                refresh_token=user_oauth["refresh_token"],
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=user_oauth.get("scopes") or DEFAULT_GOOGLE_SCOPES
+            )
+
+        # 2. Unauthenticated Local Dev / Legacy Fallback
+        target_path = token_path or GMAIL_TOKEN_PATH
+        if not os.path.exists(target_path):
+            return None
+
         with open(target_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
@@ -262,7 +331,7 @@ def load_gmail_credentials(token_path: Optional[str] = None) -> Optional[Any]:
         if not refresh_token:
             return None
 
-        creds = Credentials(
+        return Credentials(
             None,
             refresh_token=refresh_token,
             token_uri=token_uri,
@@ -270,24 +339,30 @@ def load_gmail_credentials(token_path: Optional[str] = None) -> Optional[Any]:
             client_secret=client_secret,
             scopes=scopes
         )
-        return creds
     except Exception as e:
         print(f"[EmailTool] Error loading credentials: {sanitize_text(str(e))}")
         return None
 
 
-def get_gmail_service():
+def get_gmail_service(user_id: Optional[int] = None):
     """
     Builds the authenticated Google Gmail API service client.
     """
     from googleapiclient.discovery import build
-    creds = load_gmail_credentials()
+    creds = load_gmail_credentials(user_id=user_id)
     if not creds:
+        if user_id is not None:
+            raise RuntimeError("Google Account not connected. Please connect your Google account in Settings to send emails.")
         raise RuntimeError("Gmail OAuth credentials not configured. Please run setup_gmail_auth.py first.")
     return build("gmail", "v1", credentials=creds)
 
 
-def send_email(to: str, subject: Optional[str] = None, body: Optional[str] = None) -> Dict[str, Any]:
+def send_email(
+    to: str,
+    subject: Optional[str] = None,
+    body: Optional[str] = None,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
     """
     Sends an email using the Gmail API (scope: gmail.send only).
     Validates recipient, enforces rate limits, encrypts secrets, and sanitizes API errors.
@@ -331,7 +406,7 @@ def send_email(to: str, subject: Optional[str] = None, body: Optional[str] = Non
         raw_encoded = base64.urlsafe_b64encode(mime_msg.as_bytes()).decode("utf-8")
 
         # 4. Dispatch via Gmail API
-        service = get_gmail_service()
+        service = get_gmail_service(user_id=user_id)
         result = service.users().messages().send(
             userId="me",
             body={"raw": raw_encoded}
