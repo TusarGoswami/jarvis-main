@@ -16,7 +16,7 @@ RESERVED_DEVICE_NAMES = {
 }
 
 def _resolve_safe_path(relative_path: str, must_exist: bool = False) -> str:
-    """
+    r"""
     Resolves and strictly validates that the target path remains jailed within settings.WORKSPACE_DIR.
     Guards against:
       - Sibling directory collisions (e.g., ../workspace_backup)

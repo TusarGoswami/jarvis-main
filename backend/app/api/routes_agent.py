@@ -9,6 +9,7 @@ router = APIRouter()
 
 class CommandRequest(BaseModel):
     query: str
+    include_screen: Optional[bool] = False
     image_base64: Optional[str] = None
     language: Optional[str] = None
     allow_actions: bool = True
@@ -26,6 +27,8 @@ async def execute_command(req: CommandRequest):
             image_bytes = decode_image_bytes(req.image_base64)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid image format: {e}")
+    elif req.include_screen:
+        image_bytes = capture_screen_bytes()
             
     response = await process_turn(
         user_query=req.query,

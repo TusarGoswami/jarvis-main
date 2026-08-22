@@ -22,7 +22,7 @@ import type { AppMode } from "./TelemetryStrip";
 
 interface ChatModeProps {
   messages: MessageItem[];
-  onSendQuery: (query: string, includeScreen: boolean, lang: string) => void;
+  onSendQuery: (query: string, includeScreen: boolean, lang: string, imageBase64?: string) => void;
   onToggleListening: () => void;
   onConfirmAction: (messageId: string) => void;
   onCancelAction: (messageId: string) => void;

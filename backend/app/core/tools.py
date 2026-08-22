@@ -6,7 +6,6 @@ import time
 import webbrowser
 import psutil
 import socket
-import platform
 from urllib.parse import quote
 import sqlite3
 
@@ -286,18 +285,21 @@ def get_system_stats() -> dict:
     }
 
 # --- GUI AUTOMATION & ACTION ENGINE ---
+try:
+    import pyautogui
+    pyautogui.FAILSAFE = True
+except Exception:
+    pyautogui = None
+
 
 def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str = None, keys: list[str] = None) -> dict:
     """
     Executes a GUI action: click, type, hotkey, or scroll.
     x and y coordinates are target desktop coordinates.
     """
-    if not IS_WINDOWS or pyautogui is None:
-        return {
-            "status": "error",
-            "action": "gui_action",
-            "message": "This desktop automation operation is only available on Windows."
-        }
+    if not pyautogui:
+        return {"status": "error", "message": "GUI automation is unavailable in headless or non-display environment."}
+
     try:
         width, height = pyautogui.size()
         
