@@ -34,29 +34,29 @@ Unlike simple chatbot wrappers, **Vocalis AI** fuses:
 
 ```mermaid
 flowchart TB
-    subgraph Client [Futuristic Next.js 15 HUD]
-        UI[HUD Arc Reactor & Voice Waveform]
-        AUTH_UI[Auth Modal & Google OAuth Pill]
-        SCREEN_CAP[Browser Screen Stream & Canvas]
-        INPUT_BAR[Action / Chat Switcher & Tokens]
-        DRAWER[Live Activity & Execution Telemetry]
+    subgraph Client ["Futuristic Next.js 15 HUD"]
+        UI["HUD Arc Reactor & Voice Waveform"]
+        AUTH_UI["Auth Modal & Google OAuth Pill"]
+        SCREEN_CAP["Browser Screen Stream & Canvas"]
+        INPUT_BAR["Action / Chat Switcher & Tokens"]
+        DRAWER["Live Activity & Execution Telemetry"]
     end
 
-    subgraph Backend [FastAPI Asynchronous Core (Port 8005)]
-        ROUTER_AUTH[Auth & OAuth API /api/auth]
-        WS_STREAM[Full-Duplex WebSocket /ws/stream]
-        ORCH[Agentic Multi-Step ReAct Engine]
-        VISION[Multimodal Vision Processor]
-        GUARD[Safety Guardrails & Confirmation Gate]
-        VAULT[Fernet Encrypted Vault & SQLite WAL]
+    subgraph Backend ["FastAPI Asynchronous Core (Port 8005)"]
+        ROUTER_AUTH["Auth & OAuth API /api/auth"]
+        WS_STREAM["Full-Duplex WebSocket /ws/stream"]
+        ORCH["Agentic Multi-Step ReAct Engine"]
+        VISION["Multimodal Vision Processor"]
+        GUARD["Safety Guardrails & Confirmation Gate"]
+        VAULT["Fernet Encrypted Vault & SQLite WAL"]
     end
 
-    subgraph External_Services [Integrated Cloud & Tool APIs]
-        GMAIL[Gmail API / SMTP Fallback]
-        CALENDAR[Google Calendar API v3]
-        GEMINI[Gemini 2.5 Flash / Groq Vision]
-        TTS_ENGINE[Edge Neural TTS Pipeline]
-        SYS_CTL[Windows System & App Automation]
+    subgraph External_Services ["Integrated Cloud & Tool APIs"]
+        GMAIL["Gmail API / SMTP Fallback"]
+        CALENDAR["Google Calendar API v3"]
+        GEMINI["Gemini 2.5 Flash / Groq Vision"]
+        TTS_ENGINE["Edge Neural TTS Pipeline"]
+        SYS_CTL["Windows System & App Automation"]
     end
 
     UI & SCREEN_CAP & AUTH_UI <-->|HTTP-only Cookies / WebSocket| WS_STREAM & ROUTER_AUTH
