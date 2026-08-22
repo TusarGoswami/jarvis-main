@@ -322,7 +322,12 @@ export default function VocalisHome() {
   };
 
   // ─── Query Handling (preserved from original) ───
-  const handleSendQuery = async (query: string, includeScreen: boolean, lang: string) => {
+  const handleSendQuery = async (
+    query: string,
+    includeScreen: boolean,
+    lang: string,
+    imageBase64?: string
+  ) => {
     // 1. Immediately cancel any currently playing or scheduled audio
     stopCurrentAudio();
 
@@ -345,6 +350,7 @@ export default function VocalisHome() {
           type: "query",
           query: query,
           include_screen: includeScreen,
+          image_base64: imageBase64,
           language: lang === "auto" ? undefined : lang,
           turn_id: turnId,
           max_tokens: maxTokens,
@@ -358,6 +364,8 @@ export default function VocalisHome() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             query: query,
+            include_screen: includeScreen,
+            image_base64: imageBase64,
             language: lang === "auto" ? undefined : lang,
             allow_actions: true,
             max_tokens: maxTokens,

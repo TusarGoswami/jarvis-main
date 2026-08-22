@@ -37,10 +37,10 @@ async def websocket_stream(websocket: WebSocket):
                 max_tokens = data.get("max_tokens")
 
                 image_bytes = None
-                if attach_screen:
-                    image_bytes = capture_screen_bytes()
-                elif custom_image:
+                if custom_image:
                     image_bytes = decode_image_bytes(custom_image)
+                elif attach_screen:
+                    image_bytes = capture_screen_bytes()
 
                 # Send processing indicator
                 await websocket.send_json({"type": "status", "state": "processing", "turn_id": turn_id})

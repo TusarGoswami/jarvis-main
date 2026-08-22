@@ -8,7 +8,7 @@ import { STATE_CONFIG } from "./types";
 import type { AppMode } from "./TelemetryStrip";
 
 interface VoiceInputBarProps {
-  onSendQuery: (query: string, includeScreen: boolean, lang: string) => void;
+  onSendQuery: (query: string, includeScreen: boolean, lang: string, imageBase64?: string) => void;
   onToggleListening: () => void;
   isLoading: boolean;
   onStopTalking?: () => void;
@@ -46,6 +46,8 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
   const { state } = useAssistantState();
   const [text, setText] = useState("");
   const [includeScreen, setIncludeScreen] = useState(false);
+  const [screenImage, setScreenImage] = useState<string | null>(null);
+  const [isCapturingScreen, setIsCapturingScreen] = useState(false);
   const [language, setLanguage] = useState("auto");
   const [showPresets, setShowPresets] = useState(false);
   const isListening = state === "listening";
@@ -88,16 +90,73 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [isListening]);
 
+  const handleScreenToggle = async () => {
+    if (includeScreen) {
+      setIncludeScreen(false);
+      setScreenImage(null);
+      return;
+    }
+
+    setIsCapturingScreen(true);
+    try {
+      if (typeof window !== "undefined" && navigator?.mediaDevices?.getDisplayMedia) {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { cursor: "always" } as any,
+          audio: false,
+        });
+
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        await video.play();
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(video.videoWidth || 1280, 1280);
+        canvas.height = (canvas.width * (video.videoHeight || 720)) / (video.videoWidth || 1280);
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+        // Stop screen tracks
+        stream.getTracks().forEach((track) => track.stop());
+
+        setScreenImage(dataUrl);
+        setIncludeScreen(true);
+
+        if (!text.trim()) {
+          setText("Analyze and explain what is visible on my screen.");
+        }
+      } else {
+        setIncludeScreen(true);
+        if (!text.trim()) {
+          setText("Analyze what is currently open on my screen.");
+        }
+      }
+    } catch {
+      // User cancelled dialog or permission denied: fallback to includeScreen=true (backend capture)
+      setIncludeScreen(true);
+      if (!text.trim()) {
+        setText("Analyze what is currently open on my screen.");
+      }
+    } finally {
+      setIsCapturingScreen(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim() || isLoading) return;
-    onSendQuery(text, includeScreen, language);
+    const queryToSend = text.trim() || (includeScreen ? "Analyze what is visible on my screen right now." : "");
+    if (!queryToSend || isLoading) return;
+    onSendQuery(queryToSend, includeScreen, language, screenImage || undefined);
     setText("");
+    setIncludeScreen(false);
+    setScreenImage(null);
   };
 
   const handlePreset = (query: string) => {
-    onSendQuery(query, includeScreen, language);
+    onSendQuery(query, includeScreen, language, screenImage || undefined);
     setShowPresets(false);
+    setIncludeScreen(false);
+    setScreenImage(null);
   };
 
   const cfg = STATE_CONFIG[state];
@@ -106,6 +165,41 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 w-full max-w-2xl px-4">
+      {/* Screen Snapshot Preview Pill */}
+      <AnimatePresence>
+        {includeScreen && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-cyan-950/90 border border-cyan-400/50 shadow-[0_0_20px_rgba(0,240,255,0.25)] text-cyan-200 text-xs font-mono"
+          >
+            {screenImage ? (
+              <img
+                src={screenImage}
+                alt="Screen preview"
+                className="w-8 h-5 object-cover rounded border border-cyan-500/40"
+              />
+            ) : (
+              <ScreenShare className="w-4 h-4 text-cyan-400 animate-pulse" />
+            )}
+            <span className="font-semibold">🖥️ Active Screen Attached</span>
+            <span className="text-[10px] text-cyan-400/70 hidden sm:inline">| Ready for Vision Analysis</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIncludeScreen(false);
+                setScreenImage(null);
+              }}
+              className="ml-1 text-slate-400 hover:text-red-400 cursor-pointer font-bold px-1"
+              title="Remove screen attachment"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Presets dropdown */}
       <AnimatePresence>
         {showPresets && (
@@ -188,15 +282,16 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
         {/* Screen toggle */}
         <button
           type="button"
-          onClick={() => setIncludeScreen(!includeScreen)}
-          title="Include active screen snapshot in query context"
-          className={`p-2.5 rounded-xl transition flex items-center gap-1 text-xs font-mono flex-shrink-0 ${
+          onClick={handleScreenToggle}
+          disabled={isCapturingScreen}
+          title={includeScreen ? "Active screen attached. Click to remove." : "Attach and ask about your screen"}
+          className={`p-2.5 rounded-xl transition flex items-center gap-1 text-xs font-mono flex-shrink-0 cursor-pointer ${
             includeScreen
               ? "bg-cyan-500 text-black font-bold shadow-[0_0_15px_rgba(0,240,255,0.6)]"
               : "bg-slate-900/80 text-gray-400 hover:text-cyan-300 border border-slate-800"
           }`}
         >
-          <ScreenShare className="w-4 h-4" />
+          <ScreenShare className={`w-4 h-4 ${isCapturingScreen ? "animate-spin" : ""}`} />
         </button>
 
         {/* Language selector */}
