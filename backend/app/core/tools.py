@@ -6,9 +6,30 @@ import time
 import webbrowser
 import psutil
 import socket
-import pygetwindow as gw
+import platform
 from urllib.parse import quote
 import sqlite3
+
+IS_WINDOWS = platform.system() == "Windows"
+
+# Platform-aware window manager
+if IS_WINDOWS:
+    try:
+        import pygetwindow as gw
+    except Exception:
+        gw = None
+else:
+    gw = None
+
+# Platform-aware GUI automation
+if IS_WINDOWS or os.environ.get("DISPLAY"):
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = True
+    except Exception:
+        pyautogui = None
+else:
+    pyautogui = None
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(_BASE_DIR, "jarvis.db")
@@ -92,6 +113,9 @@ def _fuzzy_match(name: str, max_dist: int = 2):
     return None
 
 def activate_window(search_term: str) -> bool:
+    """Activates a window by search term on Windows if pygetwindow is available."""
+    if not IS_WINDOWS or gw is None:
+        return False
     try:
         windows = gw.getAllWindows()
         for win in windows:
@@ -103,6 +127,29 @@ def activate_window(search_term: str) -> bool:
     except Exception:
         pass
     return False
+
+def _safe_start_target(target: str) -> bool:
+    """Safely starts an application or file in a platform-compatible way."""
+    if hasattr(os, "startfile"):
+        try:
+            os.startfile(target)
+            return True
+        except Exception:
+            return False
+    elif platform.system() == "Darwin":
+        try:
+            subprocess.Popen(["open", target])
+            return True
+        except Exception:
+            return False
+    else:
+        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            try:
+                subprocess.Popen(["xdg-open", target])
+                return True
+            except Exception:
+                return False
+        return False
 
 def launch_target(target: str) -> dict:
     target_clean = target.lower().strip()
@@ -133,8 +180,9 @@ def launch_target(target: str) -> dict:
             cursor.execute("SELECT path FROM sys_command WHERE LOWER(name) = ?", (cand,))
             sys_res = cursor.fetchall()
             if sys_res:
-                os.startfile(sys_res[0][0])
-                return {"status": "success", "action": "custom_sys_launched", "target": sys_res[0][0]}
+                if _safe_start_target(sys_res[0][0]):
+                    return {"status": "success", "action": "custom_sys_launched", "target": sys_res[0][0]}
+                return {"status": "error", "message": "This desktop automation operation is only available on Windows or environments with a desktop."}
 
             cursor.execute("SELECT url FROM web_command WHERE LOWER(name) = ?", (cand,))
             web_res = cursor.fetchall()
@@ -146,11 +194,11 @@ def launch_target(target: str) -> dict:
 
         # 3. Known apps
         if cand in KNOWN_APPS:
-            try:
-                os.startfile(KNOWN_APPS[cand])
+            if _safe_start_target(KNOWN_APPS[cand]):
                 return {"status": "success", "action": "app_launched", "target": cand}
-            except Exception as e:
-                return {"status": "error", "message": str(e)}
+            if not IS_WINDOWS:
+                return {"status": "error", "message": "This desktop automation operation is only available on Windows."}
+            return {"status": "error", "message": f"Failed to launch application '{cand}'."}
 
         # 4. Known sites
         if cand in KNOWN_SITES:
@@ -164,8 +212,11 @@ def launch_target(target: str) -> dict:
             if activate_window(matched_name):
                 return {"status": "success", "action": "fuzzy_window_activated", "target": matched_name}
             if match_type == 'app':
-                os.startfile(matched_val)
-                return {"status": "success", "action": "fuzzy_app_launched", "target": matched_name}
+                if _safe_start_target(matched_val):
+                    return {"status": "success", "action": "fuzzy_app_launched", "target": matched_name}
+                if not IS_WINDOWS:
+                    return {"status": "error", "message": "This desktop automation operation is only available on Windows."}
+                return {"status": "error", "message": f"Failed to launch application '{matched_name}'."}
             else:
                 webbrowser.open(matched_val)
                 return {"status": "success", "action": "fuzzy_site_opened", "target": matched_val}
@@ -179,11 +230,8 @@ def launch_target(target: str) -> dict:
         # 7. Safe PATH executable lookup using shutil.which
         exe_path = shutil.which(cand) or shutil.which(f"{cand}.exe")
         if exe_path:
-            try:
-                os.startfile(exe_path)
+            if _safe_start_target(exe_path):
                 return {"status": "success", "action": "path_app_launched", "target": cand}
-            except Exception:
-                pass
 
     # 8. Fallback to Google Search (No intrusive Windows popups)
     search_url = f"https://www.google.com/search?q={quote(target_clean)}"
@@ -219,8 +267,9 @@ def get_system_stats() -> dict:
     disks = {}
     for p in psutil.disk_partitions():
         try:
+            device_key = p.device.replace('\\', '') if hasattr(p, 'device') else p.mountpoint
             u = psutil.disk_usage(p.mountpoint)
-            disks[p.device.replace('\\', '')] = round(u.percent, 1)
+            disks[device_key] = round(u.percent, 1)
         except Exception:
             pass
 
@@ -237,14 +286,18 @@ def get_system_stats() -> dict:
     }
 
 # --- GUI AUTOMATION & ACTION ENGINE ---
-import pyautogui
-pyautogui.FAILSAFE = True
 
 def execute_gui_action(action_type: str, x: int = None, y: int = None, text: str = None, keys: list[str] = None) -> dict:
     """
     Executes a GUI action: click, type, hotkey, or scroll.
     x and y coordinates are target desktop coordinates.
     """
+    if not IS_WINDOWS or pyautogui is None:
+        return {
+            "status": "error",
+            "action": "gui_action",
+            "message": "This desktop automation operation is only available on Windows."
+        }
     try:
         width, height = pyautogui.size()
         
@@ -390,6 +443,12 @@ def open_settings(page: str = None) -> dict:
     """
     Opens Windows Settings, optionally navigating to a specific subpage via ms-settings URI.
     """
+    if not IS_WINDOWS:
+        return {
+            "status": "error",
+            "action": "open_settings",
+            "message": "This desktop automation operation is only available on Windows."
+        }
     try:
         clean_page = page.strip().lower() if page else None
         uri = "ms-settings:"
@@ -408,25 +467,31 @@ def open_settings(page: str = None) -> dict:
                 note = f"Specific page '{page}' not found; opened main Settings instead."
 
         # Launch via os.startfile with cmd /c start fallback
-        try:
-            os.startfile(uri)
-        except Exception:
+        if hasattr(os, "startfile"):
             try:
-                subprocess.Popen(["cmd", "/c", "start", uri], shell=True)
+                os.startfile(uri)
             except Exception:
-                subprocess.Popen(["explorer.exe", uri])
+                try:
+                    subprocess.Popen(["cmd", "/c", "start", uri], shell=True)
+                except Exception:
+                    subprocess.Popen(["explorer.exe", uri])
+        else:
+            subprocess.Popen(["cmd", "/c", "start", uri], shell=True)
 
         # Attempt to bring Settings window to focus
-        try:
-            time.sleep(0.3)
-            for w in gw.getAllWindows():
-                if w.title and "setting" in w.title.lower():
-                    if w.isMinimized:
-                        w.restore()
-                    w.activate()
-                    break
-        except Exception:
-            pass
+        if gw is not None:
+            try:
+                time.sleep(0.3)
+                for w in gw.getAllWindows():
+                    if w.title and "setting" in w.title.lower():
+                        if w.isMinimized:
+                            w.restore()
+                        win_activate = getattr(w, "activate", None)
+                        if win_activate:
+                            win_activate()
+                        break
+            except Exception:
+                pass
 
         target_name = clean_page if clean_page and not note else "general"
         print(f"[Activity] Opened Settings ({target_name})")
@@ -447,6 +512,12 @@ def set_wifi_state(enabled: bool) -> dict:
     Toggles the Wi-Fi network interface on Windows (admin=enabled/disabled).
     Gracefully detects current state (no-op if already in state) and catches permission failures.
     """
+    if not IS_WINDOWS:
+        return {
+            "status": "error",
+            "action": "set_wifi_state",
+            "message": "This desktop automation operation is only available on Windows."
+        }
     try:
         target_state = "enabled" if enabled else "disabled"
         state_label = "on" if enabled else "off"
@@ -525,4 +596,3 @@ def set_wifi_state(enabled: bool) -> dict:
             "action": "set_wifi_state",
             "message": f"Wi-Fi control encountered an unexpected error: {str(e)}"
         }
-

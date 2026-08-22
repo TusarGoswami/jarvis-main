@@ -5,7 +5,6 @@ import re
 import tempfile
 import time
 import edge_tts
-import pyttsx3
 import speech_recognition as sr
 
 HINDI_WORDS = {
