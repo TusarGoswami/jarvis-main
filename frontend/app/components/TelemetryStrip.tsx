@@ -36,6 +36,9 @@ interface TelemetryStripProps {
   onStopTalking?: () => void;
   maxTokens?: number;
   onMaxTokensChange?: (tokens: number) => void;
+  currentUser?: { id: number; email: string; display_name: string } | null;
+  onOpenAuth?: () => void;
+  onLogout?: () => void;
 }
 
 /**
@@ -55,6 +58,9 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   onStopTalking,
   maxTokens,
   onMaxTokensChange,
+  currentUser,
+  onOpenAuth,
+  onLogout,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -224,6 +230,31 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
             <Award className="w-3 h-3" />
             <span className="hidden sm:inline">Evals</span>
           </button>
+
+          {/* User Account / Sign In Badge */}
+          {currentUser ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-[10px] text-cyan-200">
+              <span className="truncate max-w-[85px] font-medium">👤 {currentUser.display_name}</span>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="text-slate-400 hover:text-red-400 ml-0.5 transition cursor-pointer"
+                  title="Sign Out"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ) : (
+            onOpenAuth && (
+              <button
+                onClick={onOpenAuth}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-gradient-to-r from-cyan-900/60 to-blue-900/60 border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400 transition text-[10px] font-semibold cursor-pointer shadow-sm"
+              >
+                <span>Sign In</span>
+              </button>
+            )
+          )}
 
           {/* Expand/collapse toggle */}
           <button

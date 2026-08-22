@@ -16,6 +16,7 @@ import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
 import { InterviewProtocol } from "./components/interview/InterviewProtocol";
 import { ChatMode } from "./components/ChatMode";
+import { AuthModal } from "./components/AuthModal";
 
 // Hooks & Types
 import { AssistantStateProvider } from "./hooks/useAssistantState";
@@ -24,6 +25,32 @@ import type { AssistantState, MessageItem, SystemStats } from "./components/type
 export default function VocalisHome() {
   // ─── Mode State (ACTION vs CHAT vs INTERVIEW) ───
   const [appMode, setAppMode] = useState<AppMode>("action");
+
+  // ─── User Authentication State ───
+  const [currentUser, setCurrentUser] = useState<{ id: number; email: string; display_name: string } | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // Check existing session on mount
+  useEffect(() => {
+    fetch("http://127.0.0.1:8005/api/auth/me", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user) {
+          setCurrentUser(data.user);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("http://127.0.0.1:8005/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {}
+    setCurrentUser(null);
+  };
 
   // ─── Core State ───
   const [rawState, setRawState] = useState<AssistantState>("idle");
@@ -387,6 +414,9 @@ export default function VocalisHome() {
           onStopTalking={stopCurrentAudio}
           maxTokens={maxTokens}
           onMaxTokensChange={setMaxTokens}
+          currentUser={currentUser}
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onLogout={handleLogout}
         />
 
         {/* ─── Mode Switching Content ─── */}
@@ -541,6 +571,13 @@ export default function VocalisHome() {
 
         {/* Eval benchmark modal */}
         <EvalBenchmarkModal isOpen={isEvalOpen} onClose={() => setIsEvalOpen(false)} />
+
+        {/* User Authentication modal */}
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          onAuthSuccess={(user) => setCurrentUser(user)}
+        />
       </main>
     </AssistantStateProvider>
   );
