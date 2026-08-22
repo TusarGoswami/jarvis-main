@@ -25,6 +25,9 @@ class Settings(BaseModel):
     GROQ_MODEL: str = "qwen/qwen3.6-27b"
     GROQ_VISION_MODEL: str = "openai/gpt-oss-20b"
 
+    # Calendar Voice Alert Configuration
+    DEFAULT_MEETING_ALERT_MINUTES: int = int(os.getenv("MEETING_ALERT_MINUTES", "10"))
+
     
     # Secure Multi-API Key loading with automatic failover
     @property
