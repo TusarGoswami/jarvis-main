@@ -25,6 +25,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def on_startup():
+    try:
+        from engine.db import init_db
+        from app.core.reminder_service import get_scheduler
+        init_db()
+        get_scheduler()
+        logger.info("Vocalis AI database & persistent reminder scheduler initialized.")
+    except Exception as e:
+        logger.error(f"Startup initialization error: {e}")
+
 # Global unhandled exception handler (B2 Error Tracking)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

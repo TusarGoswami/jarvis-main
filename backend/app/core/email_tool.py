@@ -205,9 +205,22 @@ def format_email_confirmation_reason(to: str, subject: str, body: str) -> str:
     )
 
 
-def save_gmail_credentials(refresh_token: str, client_id: str, client_secret: str, token_path: Optional[str] = None) -> str:
+DEFAULT_GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.readonly"
+]
+
+
+def save_gmail_credentials(
+    refresh_token: str,
+    client_id: str,
+    client_secret: str,
+    token_path: Optional[str] = None,
+    scopes: Optional[List[str]] = None
+) -> str:
     """
-    Encrypts and saves Gmail OAuth credentials to the secure token file at rest.
+    Encrypts and saves Gmail & Calendar OAuth credentials to the secure token file at rest.
     """
     target_path = token_path or GMAIL_TOKEN_PATH
     payload = {
@@ -215,7 +228,7 @@ def save_gmail_credentials(refresh_token: str, client_id: str, client_secret: st
         "client_id": encrypt_data(client_id),
         "client_secret": encrypt_data(client_secret),
         "token_uri": "https://oauth2.googleapis.com/token",
-        "scopes": GMAIL_SCOPES
+        "scopes": scopes or DEFAULT_GOOGLE_SCOPES
     }
     with open(target_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
@@ -224,7 +237,7 @@ def save_gmail_credentials(refresh_token: str, client_id: str, client_secret: st
 
 def load_gmail_credentials(token_path: Optional[str] = None) -> Optional[Any]:
     """
-    Loads and decrypts Gmail OAuth credentials from storage, creating
+    Loads and decrypts Gmail & Calendar OAuth credentials from storage, creating
     a valid Google Credentials object for automatic token refreshing.
     """
     target_path = token_path or GMAIL_TOKEN_PATH
@@ -244,7 +257,7 @@ def load_gmail_credentials(token_path: Optional[str] = None) -> Optional[Any]:
         client_id = decrypt_data(raw_client_id)
         client_secret = decrypt_data(raw_client_secret)
         token_uri = data.get("token_uri", "https://oauth2.googleapis.com/token")
-        scopes = data.get("scopes", GMAIL_SCOPES)
+        scopes = data.get("scopes") or DEFAULT_GOOGLE_SCOPES
 
         if not refresh_token:
             return None

@@ -45,7 +45,32 @@ def evaluate_guardrails(
         )
         return False, reason
 
-    # 2. Check destructive action names
+    # 2. Check calendar mutating actions (create / delete)
+    if action_type in ("create_event", "calendar_create", "schedule_meeting"):
+        title = args.get("title") or data.get("title") or "Meeting"
+        start = args.get("start_time") or data.get("start_time") or "Tomorrow, 3:00 PM"
+        end = args.get("end_time") or data.get("end_time") or "3:30 PM"
+        when = args.get("when_formatted") or data.get("when_formatted") or f"{start} – {end}"
+        attendees = args.get("attendees") or data.get("attendees") or []
+        attendees_str = ", ".join(attendees) if attendees else "(none specified)"
+        reason = (
+            f"CONFIRM ACTION: Create Calendar Event\n"
+            f"Title: {title}\n"
+            f"When: {when}\n"
+            f"Attendees: {attendees_str}"
+        )
+        return False, reason
+
+    if action_type in ("delete_event", "calendar_delete", "cancel_meeting"):
+        event_id = args.get("event_id") or data.get("event_id") or "unspecified"
+        reason = (
+            f"CONFIRM ACTION: Delete Calendar Event\n"
+            f"Event ID: {event_id}\n"
+            f"Warning: This will permanently delete the event from your Google Calendar."
+        )
+        return False, reason
+
+    # 3. Check destructive action names
     if action_type in DESTRUCTIVE_ACTIONS:
         return False, f"Critical action '{action_type}' requires explicit human authorization."
 

@@ -12,6 +12,24 @@ def init_db():
     cursor.execute("CREATE TABLE IF NOT EXISTS sys_command(id integer primary key, name VARCHAR(100), path VARCHAR(1000))")
     cursor.execute("CREATE TABLE IF NOT EXISTS web_command(id integer primary key, name VARCHAR(100), url VARCHAR(1000))")
     cursor.execute("CREATE TABLE IF NOT EXISTS contacts(id integer primary key, name VARCHAR(200), mobile_no VARCHAR(255), email VARCHAR(255) NULL)")
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        due_time TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        linked_event_id TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    con.commit()
+
+    # Schema migration helper for reminders table
+    cursor.execute("PRAGMA table_info(reminders)")
+    rem_cols = [row[1] for row in cursor.fetchall()]
+    if "linked_event_id" not in rem_cols:
+        cursor.execute("ALTER TABLE reminders ADD COLUMN linked_event_id TEXT DEFAULT NULL")
+        con.commit()
     
     # Interview Mode Sessions (Phase 1, 2, 3 & Integrity Evaluation)
     cursor.execute("""
@@ -339,3 +357,165 @@ def get_interview_session(interview_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[DB] Error fetching interview session: {e}")
         return None
+
+# ==================== REMINDERS & TASK MANAGEMENT ====================
+
+def add_reminder(text: str, due_time: str, linked_event_id: Optional[str] = None) -> Optional[int]:
+    """
+    Inserts a new reminder into the database, optionally linked to a calendar event.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute(
+            "INSERT INTO reminders (text, due_time, status, linked_event_id) VALUES (?, ?, 'pending', ?)",
+            (text, due_time, linked_event_id)
+        )
+        reminder_id = cursor.lastrowid
+        con.commit()
+        con.close()
+        return reminder_id
+    except Exception as e:
+        print(f"[DB] Error adding reminder: {e}")
+        return None
+
+def get_reminders(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieves reminders, optionally filtered by status ('pending', 'completed', 'cancelled').
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        if status_filter:
+            cursor.execute(
+                "SELECT id, text, due_time, status, linked_event_id, created_at FROM reminders WHERE LOWER(status) = ? ORDER BY due_time ASC",
+                (status_filter.lower(),)
+            )
+        else:
+            cursor.execute(
+                "SELECT id, text, due_time, status, linked_event_id, created_at FROM reminders ORDER BY due_time ASC"
+            )
+        rows = cursor.fetchall()
+        con.close()
+        return [
+            {
+                "id": r[0],
+                "text": r[1],
+                "due_time": r[2],
+                "status": r[3],
+                "linked_event_id": r[4],
+                "created_at": r[5]
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"[DB] Error fetching reminders: {e}")
+        return []
+
+def get_reminder_by_id(reminder_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a single reminder by its ID.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT id, text, due_time, status, linked_event_id, created_at FROM reminders WHERE id = ?",
+            (reminder_id,)
+        )
+        row = cursor.fetchone()
+        con.close()
+        if row:
+            return {
+                "id": row[0],
+                "text": row[1],
+                "due_time": row[2],
+                "status": row[3],
+                "linked_event_id": row[4],
+                "created_at": row[5]
+            }
+        return None
+    except Exception as e:
+        print(f"[DB] Error fetching reminder {reminder_id}: {e}")
+        return None
+
+def get_reminder_by_event_id(linked_event_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a reminder linked to a specific calendar event.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT id, text, due_time, status, linked_event_id, created_at FROM reminders WHERE linked_event_id = ?",
+            (linked_event_id,)
+        )
+        row = cursor.fetchone()
+        con.close()
+        if row:
+            return {
+                "id": row[0],
+                "text": row[1],
+                "due_time": row[2],
+                "status": row[3],
+                "linked_event_id": row[4],
+                "created_at": row[5]
+            }
+        return None
+    except Exception as e:
+        print(f"[DB] Error fetching reminder for event {linked_event_id}: {e}")
+        return None
+
+def update_reminder_status(reminder_id: int, status: str) -> bool:
+    """
+    Updates a reminder's status ('completed', 'cancelled', 'pending').
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute(
+            "UPDATE reminders SET status = ? WHERE id = ?",
+            (status, reminder_id)
+        )
+        affected = cursor.rowcount
+        con.commit()
+        con.close()
+        return affected > 0
+    except Exception as e:
+        print(f"[DB] Error updating reminder status: {e}")
+        return False
+
+def cancel_reminder_by_event_id(linked_event_id: str) -> bool:
+    """
+    Cancels any pending reminders linked to a specific calendar event.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute(
+            "UPDATE reminders SET status = 'cancelled' WHERE linked_event_id = ? AND status = 'pending'",
+            (linked_event_id,)
+        )
+        affected = cursor.rowcount
+        con.commit()
+        con.close()
+        return affected > 0
+    except Exception as e:
+        print(f"[DB] Error cancelling reminder for event {linked_event_id}: {e}")
+        return False
+
+def delete_reminder(reminder_id: int) -> bool:
+    """
+    Deletes a reminder from the database.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cursor = con.cursor()
+        cursor.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+        affected = cursor.rowcount
+        con.commit()
+        con.close()
+        return affected > 0
+    except Exception as e:
+        print(f"[DB] Error deleting reminder: {e}")
+        return False

@@ -26,6 +26,9 @@ class Settings(BaseModel):
     GROQ_VISION_MODEL: str = "llama-3.2-11b-vision-preview"
     MAX_OUTPUT_TOKENS: int = 150
 
+    # Calendar Voice Alert Configuration
+    DEFAULT_MEETING_ALERT_MINUTES: int = int(os.getenv("MEETING_ALERT_MINUTES", "10"))
+
     
     # Secure Multi-API Key loading with automatic failover
     @property
