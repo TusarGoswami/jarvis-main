@@ -151,9 +151,9 @@ export const ChatMode: React.FC<ChatModeProps> = ({
 
             {/* Quick Prompts */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 max-w-lg w-full">
-              {CHAT_PROMPTS.map((p) => (
+              {CHAT_PROMPTS.map((p, idx) => (
                 <button
-                  key={p}
+                  key={`prompt-${idx}-${p}`}
                   onClick={() => onSendQuery(p.replace(/^[^\s]+\s/, ""), false, "auto")}
                   className="p-2.5 rounded-xl glass-panel text-left text-xs text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition font-mono border border-slate-800"
                 >
@@ -163,9 +163,11 @@ export const ChatMode: React.FC<ChatModeProps> = ({
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
+          messages.map((msg, msgIdx) => {
+            const messageKey = msg.id || `chat-msg-${msgIdx}-${msg.timestamp || Date.now()}`;
+            return (
             <motion.div
-              key={msg.id}
+              key={messageKey}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className={`flex items-start gap-3 ${
@@ -254,19 +256,19 @@ export const ChatMode: React.FC<ChatModeProps> = ({
                 {msg.steps && msg.steps.length > 0 && (
                   <div className="mt-3 bg-black/60 p-3 rounded-xl border border-cyan-500/20 flex flex-col gap-2 text-xs font-mono">
                     <button
-                      onClick={() => toggleStepView(msg.id)}
+                      onClick={() => toggleStepView(messageKey)}
                       className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider flex items-center justify-between hover:text-cyan-200 transition"
                     >
                       <span className="flex items-center gap-1">
                         <Sparkles className="w-3 h-3 text-cyan-400" /> Multi-Step Agent Plan ({msg.steps.length} steps)
                       </span>
-                      <span>{activeStepTab[msg.id] ? "Collapse ▲" : "View Steps ▼"}</span>
+                      <span>{activeStepTab[messageKey] ? "Collapse ▲" : "View Steps ▼"}</span>
                     </button>
 
-                    {activeStepTab[msg.id] && (
+                    {activeStepTab[messageKey] && (
                       <div className="space-y-2 border-l border-cyan-900/60 pl-3 ml-1 mt-1">
                         {msg.steps.map((st, i) => (
-                          <div key={i} className="flex flex-col gap-1 text-[11px]">
+                          <div key={`st-${messageKey}-${i}`} className="flex flex-col gap-1 text-[11px]">
                             <div className="text-white/80 italic font-sans">
                               💭 {st.thought}
                             </div>
@@ -296,7 +298,7 @@ export const ChatMode: React.FC<ChatModeProps> = ({
                       <Cpu className="w-3 h-3 text-cyan-400" /> Executed System Actions:
                     </span>
                     {msg.actionsExecuted.map((act, i) => (
-                      <div key={i} className="flex items-center gap-1.5 text-cyan-300">
+                      <div key={`act-${messageKey}-${i}-${act.action}`} className="flex items-center gap-1.5 text-cyan-300">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         <span>{act.action}: <strong>{act.target || act.query || act.command || act.message || "Success"}</strong></span>
                       </div>
@@ -330,8 +332,9 @@ export const ChatMode: React.FC<ChatModeProps> = ({
                 )}
               </div>
             </motion.div>
-          ))
-        )}
+          );
+        })
+      )}
 
         {/* Loading Indicator */}
         {isLoading && (

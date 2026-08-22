@@ -122,7 +122,7 @@ export default function VocalisHome() {
               stopCurrentAudio();
 
               const newMsg: MessageItem = {
-                id: Date.now().toString(),
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 sender: "vocalis",
                 text: res.reply_text,
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -254,7 +254,7 @@ export default function VocalisHome() {
 
     setCurrentAgentSteps([]);
     const userMsg: MessageItem = {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       sender: "user",
       text: query,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -293,7 +293,7 @@ export default function VocalisHome() {
         setRawState("idle");
 
         const vocalisMsg: MessageItem = {
-          id: (Date.now() + 1).toString(),
+          id: `vocalis-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           sender: "vocalis",
           text: resData.reply_text,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
