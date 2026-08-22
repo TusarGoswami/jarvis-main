@@ -23,7 +23,8 @@ class Settings(BaseModel):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     FALLBACK_MODEL: str = "gemini-1.5-flash"
     GROQ_MODEL: str = "qwen/qwen3.6-27b"
-    GROQ_VISION_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_VISION_MODEL: str = "llama-3.2-11b-vision-preview"
+    MAX_OUTPUT_TOKENS: int = 150
 
     # Calendar Voice Alert Configuration
     DEFAULT_MEETING_ALERT_MINUTES: int = int(os.getenv("MEETING_ALERT_MINUTES", "10"))

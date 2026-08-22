@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp } from "lucide-react";
+import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp, Square } from "lucide-react";
 import { useAssistantState } from "../hooks/useAssistantState";
 import { STATE_CONFIG } from "./types";
 
@@ -10,6 +10,9 @@ interface VoiceInputBarProps {
   onSendQuery: (query: string, includeScreen: boolean, lang: string) => void;
   onToggleListening: () => void;
   isLoading: boolean;
+  onStopTalking?: () => void;
+  maxTokens?: number;
+  onMaxTokensChange?: (tokens: number) => void;
 }
 
 const PRESETS = [
@@ -29,11 +32,15 @@ const PRESETS = [
  *  - Language selector (auto/en/hi/bn)
  *  - Preset quick commands
  *  - Form submit guard (empty check + loading)
+ *  - Token limit control & instant Stop Talking interrupt
  */
 export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
   onSendQuery,
   onToggleListening,
   isLoading,
+  onStopTalking,
+  maxTokens,
+  onMaxTokensChange,
 }) => {
   const { state } = useAssistantState();
   const [text, setText] = useState("");
@@ -149,7 +156,7 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
           />
         </button>
 
-        {/* Screen toggle - carries forward includeScreen from MultimodalBar */}
+        {/* Screen toggle */}
         <button
           type="button"
           onClick={() => setIncludeScreen(!includeScreen)}
@@ -163,7 +170,7 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
           <ScreenShare className="w-4 h-4" />
         </button>
 
-        {/* Language selector - carries forward from MultimodalBar */}
+        {/* Language selector */}
         <div className="relative flex items-center flex-shrink-0">
           <Languages className="w-3.5 h-3.5 absolute left-2 text-cyan-400/60 pointer-events-none" />
           <select
@@ -178,7 +185,23 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
           </select>
         </div>
 
-        {/* Text input - carries forward context-aware placeholder from MultimodalBar */}
+        {/* Token limit size selector */}
+        {onMaxTokensChange && (
+          <div className="relative flex items-center flex-shrink-0" title="Max output token limit size">
+            <select
+              value={maxTokens ?? 150}
+              onChange={(e) => onMaxTokensChange(Number(e.target.value))}
+              className="px-2 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-500/40"
+            >
+              <option value={75}>75 tk</option>
+              <option value={150}>150 tk</option>
+              <option value={250}>250 tk</option>
+              <option value={500}>500 tk</option>
+            </select>
+          </div>
+        )}
+
+        {/* Text input */}
         <input
           type="text"
           value={text}
@@ -211,6 +234,24 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
                 className="rounded"
               />
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Stop Talking Button when speaking */}
+        <AnimatePresence>
+          {state === "speaking" && onStopTalking && (
+            <motion.button
+              type="button"
+              onClick={onStopTalking}
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="p-2.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold hover:brightness-110 transition shadow-[0_0_15px_rgba(239,68,68,0.8)] flex items-center gap-1.5 flex-shrink-0 text-xs font-mono"
+              title="Stop Talking"
+            >
+              <Square className="w-3.5 h-3.5 fill-white" />
+              <span>Stop</span>
+            </motion.button>
           )}
         </AnimatePresence>
 

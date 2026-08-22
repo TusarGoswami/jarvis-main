@@ -34,7 +34,9 @@ VOCALIS_PERSONA = (
     "You are Vocalis AI, a cutting-edge multimodal voice & vision operating system. "
     "You are intelligent, concise, highly capable, and sleek in tone. "
     "Address the user politely (or as Sir/Ma'am if appropriate). "
-    "Keep voice responses natural and crisp (2-3 sentences max). "
+    "Keep voice responses natural, crisp, and direct (1-3 sentences max). "
+    "Do NOT output internal thinking blocks, chain-of-thought, or <think> tags. "
+    "For simple identity or status questions (e.g. 'who are you', 'who created you'), answer directly in 1-2 short sentences without fluff. "
     "When a user asks about what is on their screen or camera, analyze the provided visual frame in detail. "
     "You can execute GUI actions to click, type, press hotkeys, or scroll based on visual grounding. "
     "If you need to perform an action on the screen, append a special tag at the very end of your response: "
@@ -59,6 +61,7 @@ async def process_turn(
     image_bytes: Optional[bytes] = None,
     client_lang: Optional[str] = None,
     allow_actions: bool = True,
+    max_tokens: Optional[int] = None,
     on_step_update: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
 ) -> AgentResponse:
     global _pending_action
@@ -403,15 +406,25 @@ async def process_turn(
 
         full_prompt = f"{VOCALIS_PERSONA}\n{lang_prompt}{rag_context}\n\nUser Question: {q}"
 
-        if image_bytes:
-            intent = "multimodal_vision"
+        # Check if query is a simple question (identity, greeting, simple status)
+        is_simple_query = any(pattern in q.lower() for pattern in [
+            "who are you", "who r u", "what is your name", "what's your name",
+            "who made you", "who created you", "hi", "hello", "hey", "how are you"
+        ])
+        effective_max_tokens = 100 if is_simple_query else max_tokens
 
         reply_text, provider = await generate_multimodal_content(
             prompt_text=full_prompt,
             image_bytes=image_bytes,
-            system_instruction=None
+            system_instruction=None,
+            max_tokens=effective_max_tokens
         )
         confidence = 0.96
+
+        # Strip any internal thinking blocks (<think>...</think>) if output by model
+        reply_text = re.sub(r'<think>.*?</think>', '', reply_text, flags=re.DOTALL).strip()
+        reply_text = re.sub(r'</?think>', '', reply_text).strip()
+
 
         # Parse GUI actions from response
         action_match = re.search(r'\[GUI_ACTION:\s*([^\]]+)\]', reply_text)

@@ -14,6 +14,7 @@ import {
   VolumeX,
   Bot,
   UserCheck,
+  Square,
 } from "lucide-react";
 import type { SystemStats } from "./types";
 
@@ -27,6 +28,10 @@ interface TelemetryStripProps {
   onOpenEvals: () => void;
   appMode: AppMode;
   onModeChange: (mode: AppMode) => void;
+  isSpeaking?: boolean;
+  onStopTalking?: () => void;
+  maxTokens?: number;
+  onMaxTokensChange?: (tokens: number) => void;
 }
 
 /**
@@ -41,6 +46,10 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   onOpenEvals,
   appMode,
   onModeChange,
+  isSpeaking,
+  onStopTalking,
+  maxTokens,
+  onMaxTokensChange,
 }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -130,6 +139,25 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
 
         {/* Right: Controls */}
         <div className="flex items-center gap-2">
+          {/* Stop Talking Button when speaking */}
+          {isSpeaking && onStopTalking && (
+            <button
+              onClick={onStopTalking}
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-600 text-white font-bold animate-pulse hover:bg-red-500 transition text-[10px] shadow-[0_0_10px_rgba(239,68,68,0.7)]"
+              title="Stop audio playback"
+            >
+              <Square className="w-3 h-3 fill-white" />
+              <span>STOP TALKING</span>
+            </button>
+          )}
+
+          {/* Token Limit Indicator */}
+          {maxTokens && (
+            <div className="hidden lg:flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] text-cyan-300/90" title="Token Limit Size">
+              <span>{maxTokens} tk</span>
+            </div>
+          )}
+
           {/* WS status */}
           <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px]">
             <span

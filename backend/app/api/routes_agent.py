@@ -12,6 +12,7 @@ class CommandRequest(BaseModel):
     image_base64: Optional[str] = None
     language: Optional[str] = None
     allow_actions: bool = True
+    max_tokens: Optional[int] = None
 
 class TTSRequest(BaseModel):
     text: str
@@ -30,7 +31,8 @@ async def execute_command(req: CommandRequest):
         user_query=req.query,
         image_bytes=image_bytes,
         client_lang=req.language,
-        allow_actions=req.allow_actions
+        allow_actions=req.allow_actions,
+        max_tokens=req.max_tokens
     )
     return response.model_dump()
 
