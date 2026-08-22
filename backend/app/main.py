@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core.logging_config import setup_logging
 from app.core.sanitizer import sanitize_text
-from app.api import routes_agent, routes_system, routes_workspace, routes_interview, ws_stream
+from app.api import routes_agent, routes_system, routes_workspace, routes_interview, ws_stream, routes_auth
 
 # Initialize structured logging
 setup_logging()
@@ -55,6 +55,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Attach API routers
+app.include_router(routes_auth.router, tags=["Authentication"])
 app.include_router(routes_agent.router, prefix="/api/agent", tags=["Agent"])
 app.include_router(routes_system.router, prefix="/api/system", tags=["System"])
 app.include_router(routes_workspace.router, tags=["Workspace"])

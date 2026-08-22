@@ -4,8 +4,15 @@ from pydantic import BaseModel
 
 from app.core.fs_tools import fs_read, fs_write, fs_edit, fs_list, fs_delete
 from app.core.terminal_tool import execute_terminal_command
-from app.core.web_tool import search_and_scrape
-from app.core.tools import execute_gui_action, launch_target, get_system_stats
+from app.core.tools import (
+    execute_gui_action,
+    launch_target,
+    get_system_stats,
+    set_brightness,
+    adjust_brightness,
+    open_settings,
+    set_wifi_state
+)
 from app.core.email_tool import send_email
 from app.core.calendar_tool import check_calendar, create_event, delete_event
 from app.core.reminder_service import create_reminder, list_reminders, cancel_reminder
@@ -235,6 +242,57 @@ TOOLS_MANIFEST: Dict[str, ToolDefinition] = {
         risk_level="low",
         requires_approval=False
     ),
+    "set_brightness": ToolDefinition(
+        name="set_brightness",
+        description="Sets the screen brightness to an absolute level between 0 and 100 percent.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "level": {"type": "integer", "description": "Target brightness level (0-100)"}
+            },
+            "required": ["level"]
+        },
+        risk_level="low",
+        requires_approval=False
+    ),
+    "adjust_brightness": ToolDefinition(
+        name="adjust_brightness",
+        description="Increases or decreases display brightness by a delta amount (e.g. +10 or -10).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "delta": {"type": "integer", "description": "Delta to adjust brightness by (e.g. 10 for brighter, -10 for dimmer)"}
+            },
+            "required": ["delta"]
+        },
+        risk_level="low",
+        requires_approval=False
+    ),
+    "open_settings": ToolDefinition(
+        name="open_settings",
+        description="Opens Windows Settings or a specific settings page (e.g. display, sound, wifi, bluetooth, battery, apps, privacy).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "page": {"type": "string", "description": "Specific settings category or page (e.g. 'display', 'wifi', 'bluetooth')"}
+            }
+        },
+        risk_level="low",
+        requires_approval=False
+    ),
+    "set_wifi_state": ToolDefinition(
+        name="set_wifi_state",
+        description="Turns Wi-Fi on or off on the Windows system.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean", "description": "True to turn on Wi-Fi, False to turn off"}
+            },
+            "required": ["enabled"]
+        },
+        risk_level="low",
+        requires_approval=False
+    ),
     "screenshot": ToolDefinition(
         name="screenshot",
         description="Captures the current desktop screen state and visual UI for analysis.",
@@ -314,6 +372,17 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
         elif tool_name == "cancel_reminder":
             rem_id = int(arguments.get("reminder_id", 0))
             return cancel_reminder(reminder_id=rem_id)
+        elif tool_name == "set_brightness":
+            lvl = int(arguments.get("level", 50))
+            return set_brightness(level=lvl)
+        elif tool_name == "adjust_brightness":
+            d = int(arguments.get("delta", 10))
+            return adjust_brightness(delta=d)
+        elif tool_name == "open_settings":
+            return open_settings(page=arguments.get("page"))
+        elif tool_name == "set_wifi_state":
+            is_enabled = bool(arguments.get("enabled", True))
+            return set_wifi_state(enabled=is_enabled)
         elif tool_name in ["screenshot", "observe_screen"]:
             from app.core.multimodal import capture_screen_bytes
             s_bytes = capture_screen_bytes()

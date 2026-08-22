@@ -7,8 +7,10 @@ from typing import Optional, Dict, Any, List
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jarvis.db")
 
 def init_db():
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=15.0)
     cursor = con.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA busy_timeout=5000;")
     cursor.execute("CREATE TABLE IF NOT EXISTS sys_command(id integer primary key, name VARCHAR(100), path VARCHAR(1000))")
     cursor.execute("CREATE TABLE IF NOT EXISTS web_command(id integer primary key, name VARCHAR(100), url VARCHAR(1000))")
     cursor.execute("CREATE TABLE IF NOT EXISTS contacts(id integer primary key, name VARCHAR(200), mobile_no VARCHAR(255), email VARCHAR(255) NULL)")
@@ -30,6 +32,30 @@ def init_db():
     if "linked_event_id" not in rem_cols:
         cursor.execute("ALTER TABLE reminders ADD COLUMN linked_event_id TEXT DEFAULT NULL")
         con.commit()
+
+    # Multi-User Foundation: Users and Revocable Sessions Tables
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        display_name TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at REAL NOT NULL,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    con.commit()
     
     # Interview Mode Sessions (Phase 1, 2, 3 & Integrity Evaluation)
     cursor.execute("""
@@ -519,3 +545,170 @@ def delete_reminder(reminder_id: int) -> bool:
     except Exception as e:
         print(f"[DB] Error deleting reminder: {e}")
         return False
+
+
+# ==================== MULTI-USER & SESSION AUTH HELPERS ====================
+
+def create_user(email: str, password_hash: str, display_name: Optional[str] = None) -> Optional[int]:
+    """
+    Creates a new user account. Returns user_id on success, None if duplicate email.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
+            (email.strip().lower(), password_hash, display_name.strip() if display_name else None)
+        )
+        user_id = cursor.lastrowid
+        con.commit()
+        return user_id
+    except sqlite3.IntegrityError:
+        return None
+    except Exception as e:
+        print(f"[DB] Error creating user: {e}")
+        return None
+    finally:
+        con.close()
+
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a user by normalized email address.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT id, email, password_hash, display_name, created_at FROM users WHERE email = ?",
+            (email.strip().lower(),)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "email": row[1],
+                "password_hash": row[2],
+                "display_name": row[3] or row[1].split('@')[0],
+                "created_at": row[4]
+            }
+        return None
+    except Exception as e:
+        print(f"[DB] Error fetching user by email: {e}")
+        return None
+    finally:
+        con.close()
+
+
+def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a user by numeric user ID.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT id, email, password_hash, display_name, created_at FROM users WHERE id = ?",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "email": row[1],
+                "password_hash": row[2],
+                "display_name": row[3] or row[1].split('@')[0],
+                "created_at": row[4]
+            }
+        return None
+    except Exception as e:
+        print(f"[DB] Error fetching user by id: {e}")
+        return None
+    finally:
+        con.close()
+
+
+def create_session(user_id: int, token: str, expires_at: float) -> bool:
+    """
+    Stores a revocable server-side session token.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+            (token, user_id, expires_at)
+        )
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[DB] Error creating session: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def get_session_user(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Validates a session token and returns the associated user if active and not expired.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute("""
+            SELECT u.id, u.email, u.display_name, u.created_at, s.expires_at
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.token = ? AND s.expires_at > ?
+        """, (token, time.time()))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "email": row[1],
+                "display_name": row[2] or row[1].split('@')[0],
+                "created_at": row[3],
+                "session_expires_at": row[4]
+            }
+        return None
+    except Exception as e:
+        print(f"[DB] Error validating session: {e}")
+        return None
+    finally:
+        con.close()
+
+
+def delete_session(token: str) -> bool:
+    """
+    Revokes a session token immediately (server-side invalidation).
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        affected = cursor.rowcount
+        con.commit()
+        return affected > 0
+    except Exception as e:
+        print(f"[DB] Error deleting session: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def delete_expired_sessions() -> int:
+    """
+    Cleans up all expired session tokens.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute("DELETE FROM sessions WHERE expires_at <= ?", (time.time(),))
+        affected = cursor.rowcount
+        con.commit()
+        return affected
+    except Exception as e:
+        print(f"[DB] Error deleting expired sessions: {e}")
+        return 0
+    finally:
+        con.close()

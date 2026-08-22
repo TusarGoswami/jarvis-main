@@ -138,6 +138,25 @@ A browser prompt will request approval for the combined Gmail & Calendar scopes 
 
 ---
 
+## ⚙️ Voice & Text System Control (Brightness, Settings, Wi-Fi)
+
+Vocalis AI provides native Windows operating system control directly via voice or text without requiring guardrail confirmation:
+
+- **Display Brightness Control**:
+  - Sets absolute percentage (`0-100%`) or relative adjustments (`+10%`, `-10%`).
+  - Clamps out-of-range values and gracefully handles unsupported virtual/external displays.
+  - Examples: *"Increase brightness"*, *"Decrease brightness by 20"*, *"Set brightness to 70"*, *"Make the screen brighter"*.
+- **Windows Settings Navigation**:
+  - Uses `ms-settings:` URIs to open specific settings categories directly.
+  - Examples: *"Open settings"*, *"Open display settings"*, *"Open wifi settings"*, *"Open bluetooth settings"*, *"Open sound settings"*.
+- **Wi-Fi Adapter Toggle**:
+  - Toggles interface state using Windows `netsh` interface control.
+  - Returns friendly no-op if Wi-Fi is already in target state.
+  - Gracefully catches non-elevated permissions and informs the user to run as Administrator without crashing.
+  - Examples: *"Turn on wifi"*, *"Turn off wifi"*, *"Disable wireless"*, *"Enable wifi"*.
+
+---
+
 ## 🧪 Hackathon Rubric Alignment
 
 | Criterion | Vocalis AI Implementation |

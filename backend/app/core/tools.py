@@ -120,6 +120,12 @@ def launch_target(target: str) -> dict:
         if activate_window(cand):
             return {"status": "success", "action": "window_activated", "target": cand}
 
+        # 1.5 Check Settings pages
+        if "setting" in cand or cand in SETTINGS_PAGES:
+            res = open_settings(cand)
+            if res.get("status") == "success":
+                return res
+
         # 2. Check Database custom commands
         try:
             con = _get_db()
@@ -191,13 +197,19 @@ def search_web(query: str) -> dict:
 
 def play_youtube(query: str) -> dict:
     # Clean query
-    clean = re.sub(r'^(play|bajao|on youtube|youtube pe|chalao)\s*', '', query, flags=re.I).strip()
+    clean = re.sub(r'^(open youtube and |play|bajao|on youtube|youtube pe|chalao|listen to|search for|search)\s*', '', query, flags=re.I).strip()
     clean = re.sub(r'\s*(on youtube|youtube pe|youtube par)$', '', clean, flags=re.I).strip()
     if not clean:
         clean = query
-    url = f"https://www.youtube.com/results?search_query={quote(clean)}"
-    webbrowser.open(url)
-    return {"status": "success", "action": "youtube_play", "query": clean, "url": url}
+
+    try:
+        import pywhatkit
+        pywhatkit.playonyt(clean)
+        return {"status": "success", "action": "youtube_play", "query": clean}
+    except Exception:
+        url = f"https://www.youtube.com/results?search_query={quote(clean)}"
+        webbrowser.open(url)
+        return {"status": "success", "action": "youtube_play", "query": clean, "url": url}
 
 def get_system_stats() -> dict:
     cpu = psutil.cpu_percent(interval=None)
@@ -287,4 +299,230 @@ def send_email(recipient_name: str, body: str) -> dict:
         return {"status": "success", "action": "send_email", "recipient": name, "email": recipient_email}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+# --- SYSTEM CONTROL TOOLS (Brightness, Windows Settings, Wi-Fi) ---
+
+SETTINGS_PAGES = {
+    'display': 'ms-settings:display',
+    'screen': 'ms-settings:display',
+    'sound': 'ms-settings:sound',
+    'audio': 'ms-settings:sound',
+    'volume': 'ms-settings:sound',
+    'wifi': 'ms-settings:network-wifi',
+    'wi-fi': 'ms-settings:network-wifi',
+    'network': 'ms-settings:network',
+    'internet': 'ms-settings:network',
+    'bluetooth': 'ms-settings:bluetooth',
+    'devices': 'ms-settings:bluetooth',
+    'battery': 'ms-settings:batterysaver',
+    'power': 'ms-settings:powersleep',
+    'apps': 'ms-settings:appsfeatures',
+    'applications': 'ms-settings:appsfeatures',
+    'privacy': 'ms-settings:privacy',
+    'security': 'ms-settings:privacy',
+    'windows update': 'ms-settings:windowsupdate',
+    'update': 'ms-settings:windowsupdate',
+    'notifications': 'ms-settings:notifications',
+    'personalization': 'ms-settings:personalization',
+    'background': 'ms-settings:personalization-background',
+    'colors': 'ms-settings:colors',
+    'date': 'ms-settings:dateandtime',
+    'time': 'ms-settings:dateandtime',
+}
+
+def set_brightness(level: int) -> dict:
+    """
+    Sets display brightness to an absolute percentage (0-100).
+    Clamps values outside 0-100.
+    """
+    try:
+        import screen_brightness_control as sbc
+        clamped_level = max(0, min(100, int(level)))
+        sbc.set_brightness(clamped_level)
+        current = sbc.get_brightness()
+        actual = current[0] if isinstance(current, list) and current else clamped_level
+        print(f"[Activity] Brightness set to {actual}%")
+        return {
+            "status": "success",
+            "action": "set_brightness",
+            "level": actual,
+            "message": f"Brightness set to {actual}%."
+        }
+    except Exception as e:
+        err_msg = str(e)
+        if "NoDisplayError" in err_msg or "failed to find any display" in err_msg.lower() or "unsupported" in err_msg.lower():
+            msg = "Brightness control is not supported on this display hardware or virtual environment."
+        else:
+            msg = f"Failed to set brightness: {err_msg}"
+        return {"status": "error", "action": "set_brightness", "message": msg}
+
+
+def adjust_brightness(delta: int = 10) -> dict:
+    """
+    Adjusts display brightness relatively by +/- delta percentage.
+    """
+    try:
+        import screen_brightness_control as sbc
+        current_list = sbc.get_brightness()
+        curr = current_list[0] if isinstance(current_list, list) and current_list else 50
+        new_level = max(0, min(100, curr + int(delta)))
+        sbc.set_brightness(new_level)
+        direction = "increased" if delta >= 0 else "decreased"
+        print(f"[Activity] Brightness {direction} to {new_level}%")
+        return {
+            "status": "success",
+            "action": "adjust_brightness",
+            "level": new_level,
+            "delta": delta,
+            "message": f"Brightness {direction} to {new_level}%."
+        }
+    except Exception as e:
+        err_msg = str(e)
+        if "NoDisplayError" in err_msg or "failed to find any display" in err_msg.lower():
+            msg = "Brightness adjustment is not supported on this display hardware."
+        else:
+            msg = f"Failed to adjust brightness: {err_msg}"
+        return {"status": "error", "action": "adjust_brightness", "message": msg}
+
+
+def open_settings(page: str = None) -> dict:
+    """
+    Opens Windows Settings, optionally navigating to a specific subpage via ms-settings URI.
+    """
+    try:
+        clean_page = page.strip().lower() if page else None
+        uri = "ms-settings:"
+        note = None
+
+        if clean_page:
+            found_uri = None
+            for key, val in SETTINGS_PAGES.items():
+                if key in clean_page or clean_page in key:
+                    found_uri = val
+                    clean_page = key
+                    break
+            if found_uri:
+                uri = found_uri
+            else:
+                note = f"Specific page '{page}' not found; opened main Settings instead."
+
+        # Launch via os.startfile with cmd /c start fallback
+        try:
+            os.startfile(uri)
+        except Exception:
+            try:
+                subprocess.Popen(["cmd", "/c", "start", uri], shell=True)
+            except Exception:
+                subprocess.Popen(["explorer.exe", uri])
+
+        # Attempt to bring Settings window to focus
+        try:
+            time.sleep(0.3)
+            for w in gw.getAllWindows():
+                if w.title and "setting" in w.title.lower():
+                    if w.isMinimized:
+                        w.restore()
+                    w.activate()
+                    break
+        except Exception:
+            pass
+
+        target_name = clean_page if clean_page and not note else "general"
+        print(f"[Activity] Opened Settings ({target_name})")
+        msg = f"Opened Windows Settings ({target_name})." if not note else note
+        return {
+            "status": "success",
+            "action": "open_settings",
+            "page": target_name,
+            "uri": uri,
+            "message": msg
+        }
+    except Exception as e:
+        return {"status": "error", "action": "open_settings", "message": f"Failed to open Settings: {str(e)}"}
+
+
+def set_wifi_state(enabled: bool) -> dict:
+    """
+    Toggles the Wi-Fi network interface on Windows (admin=enabled/disabled).
+    Gracefully detects current state (no-op if already in state) and catches permission failures.
+    """
+    try:
+        target_state = "enabled" if enabled else "disabled"
+        state_label = "on" if enabled else "off"
+
+        # 1. Check current Wi-Fi adapter state
+        try:
+            check_proc = subprocess.run(
+                ["netsh", "interface", "show", "interface"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            output = check_proc.stdout
+
+            is_already_state = False
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if "wi-fi" in line_lower or "wireless" in line_lower or "wlan" in line_lower:
+                    if target_state in line_lower:
+                        is_already_state = True
+                    break
+
+            if is_already_state:
+                return {
+                    "status": "success",
+                    "action": "set_wifi_state",
+                    "enabled": enabled,
+                    "noop": True,
+                    "message": f"Wi-Fi is already {state_label}."
+                }
+        except Exception:
+            pass
+
+        # 2. Attempt to toggle Wi-Fi
+        set_proc = subprocess.run(
+            ["netsh", "interface", "set", "interface", "Wi-Fi", f"admin={target_state}"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if set_proc.returncode != 0:
+            err_text = (set_proc.stderr or set_proc.stdout or "").strip()
+            err_lower = err_text.lower()
+            if (
+                "administrator" in err_lower
+                or "elevation" in err_lower
+                or "access is denied" in err_lower
+                or "privilege" in err_lower
+                or set_proc.returncode == 1
+            ):
+                print(f"[Activity] Wi-Fi toggle failed: insufficient privileges")
+                return {
+                    "status": "error",
+                    "action": "set_wifi_state",
+                    "permission_error": True,
+                    "message": "Wi-Fi couldn't be toggled — this requires running Vocalis as Administrator."
+                }
+            return {
+                "status": "error",
+                "action": "set_wifi_state",
+                "message": f"Failed to toggle Wi-Fi: {err_text}"
+            }
+
+        print(f"[Activity] Wi-Fi turned {state_label}")
+        return {
+            "status": "success",
+            "action": "set_wifi_state",
+            "enabled": enabled,
+            "message": f"Wi-Fi has been turned {state_label}."
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "action": "set_wifi_state",
+            "message": f"Wi-Fi control encountered an unexpected error: {str(e)}"
+        }
 

@@ -7,7 +7,18 @@ from google.genai import types
 
 from app.config import settings
 from app.core.speech_service import detect_language, detect_target_language
-from app.core.tools import launch_target, search_web, play_youtube, get_system_stats, execute_gui_action, send_email
+from app.core.tools import (
+    launch_target,
+    search_web,
+    play_youtube,
+    get_system_stats,
+    execute_gui_action,
+    send_email,
+    set_brightness,
+    adjust_brightness,
+    open_settings,
+    set_wifi_state
+)
 from app.core.email_tool import parse_email_command, validate_email_format, send_email as send_email_gmail
 from app.core.calendar_tool import parse_calendar_command, check_calendar, create_event, delete_event
 from app.core.reminder_service import parse_reminder_command, create_reminder, list_reminders, cancel_reminder
@@ -140,58 +151,79 @@ async def process_turn(
             primary_target = sub_actions[0].strip()
             secondary_action = sub_actions[1].strip() if len(sub_actions) > 1 else None
 
-            intent = "app_launch"
-            safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": primary_target}, confidence)
-            if safe and allow_actions:
-                res = launch_target(primary_target)
+            if "setting" in primary_target:
+                intent = "open_settings"
+                page_match = re.search(r'([a-zA-Z\s]+?)\s*settings?', primary_target)
+                page_name = page_match.group(1).strip() if page_match and page_match.group(1).strip() != "" else None
+                res = open_settings(page=page_name)
                 actions_executed.append(res)
-                reply_text = f"Opening {primary_target}."
-
-                # If secondary action is typing/writing
-                if secondary_action and (secondary_action.startswith("write ") or secondary_action.startswith("type ") or secondary_action.startswith("likho ")):
-                    text_to_type = re.sub(r'^(write|type|likho)\s+', '', secondary_action, flags=re.I).strip()
-                    if text_to_type:
-                        time.sleep(0.8)  # Wait for window focus
-                        type_res = execute_gui_action("type", text=text_to_type)
-                        actions_executed.append(type_res)
-                        reply_text = f"Opened {primary_target} and entered your text."
-                elif secondary_action and (secondary_action.startswith("search ") or secondary_action.startswith("look for ") or secondary_action.startswith("searching ")):
-                    search_term = re.sub(r'^(search|searching|look for|khojo|dhundho)\s+(for\s+)?', '', secondary_action, flags=re.I).strip()
-                    if search_term:
-                        search_res = search_web(search_term)
-                        actions_executed.append(search_res)
-                        reply_text = f"Opened {primary_target} and searched for {search_term}."
-                elif secondary_action and (secondary_action.startswith("send ") or secondary_action.startswith("email ") or secondary_action.startswith("mail ")):
-                    email_body = None
-                    recipient = None
-                    
-                    send_match = re.search(r'^send\s+(.+?)\s+to\s+(\w+)', secondary_action, re.I)
-                    if send_match:
-                        email_body = send_match.group(1).strip()
-                        recipient = send_match.group(2).strip()
-                    else:
-                        saying_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)\s+saying\s+(.+)', secondary_action, re.I)
-                        if saying_match:
-                            recipient = saying_match.group(1).strip()
-                            email_body = saying_match.group(2).strip()
-                        else:
-                            fallback_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)(?:\s+(.+))?', secondary_action, re.I)
-                            if fallback_match:
-                                recipient = fallback_match.group(1).strip()
-                                email_body = fallback_match.group(2).strip() if fallback_match.group(2) else "Hello"
-
-                    if recipient and email_body:
-                        email_res = send_email(recipient, email_body)
-                        actions_executed.append(email_res)
-                        if email_res.get("status") == "success":
-                            reply_text = f"Opened {primary_target} and drafted email to {email_res.get('recipient')}."
-                        else:
-                            reply_text = f"Opened {primary_target}, but email draft failed: {email_res.get('message')}."
+                reply_text = res.get("message", "Opened Windows Settings.")
+            elif primary_target == "youtube" and secondary_action and any(secondary_action.startswith(p) for p in ["play ", "chalao ", "bajao ", "search ", "look for ", "listen to "]):
+                intent = "youtube"
+                play_term = re.sub(r'^(play|chalao|bajao|search|look for|listen to)\s+(for\s+)?', '', secondary_action, flags=re.I).strip()
+                res = play_youtube(play_term)
+                actions_executed.append(res)
+                reply_text = f"Playing {play_term} on YouTube."
             else:
-                _pending_action = {"action": "launch", "args": {"target": primary_target}}
-                needs_confirmation = not safe
-                confirmation_reason = reason
-                reply_text = f"Ready to open {primary_target}. Awaiting confirmation."
+                intent = "app_launch"
+                safe, reason = evaluate_guardrails(intent, {"action": "launch", "target": primary_target}, confidence)
+                if safe and allow_actions:
+                    res = launch_target(primary_target)
+                    actions_executed.append(res)
+                    reply_text = f"Opening {primary_target}."
+
+                    # If secondary action is playing/youtube
+                    if secondary_action and any(secondary_action.startswith(p) for p in ["play ", "chalao ", "bajao ", "listen to "]):
+                        play_term = re.sub(r'^(play|chalao|bajao|listen to)\s+', '', secondary_action, flags=re.I).strip()
+                        if play_term:
+                            play_res = play_youtube(play_term)
+                            actions_executed.append(play_res)
+                            reply_text = f"Opened {primary_target} and playing {play_term}."
+                    # If secondary action is typing/writing
+                    elif secondary_action and (secondary_action.startswith("write ") or secondary_action.startswith("type ") or secondary_action.startswith("likho ")):
+                        text_to_type = re.sub(r'^(write|type|likho)\s+', '', secondary_action, flags=re.I).strip()
+                        if text_to_type:
+                            time.sleep(0.8)  # Wait for window focus
+                            type_res = execute_gui_action("type", text=text_to_type)
+                            actions_executed.append(type_res)
+                            reply_text = f"Opened {primary_target} and entered your text."
+                    elif secondary_action and (secondary_action.startswith("search ") or secondary_action.startswith("look for ") or secondary_action.startswith("searching ")):
+                        search_term = re.sub(r'^(search|searching|look for|khojo|dhundho)\s+(for\s+)?', '', secondary_action, flags=re.I).strip()
+                        if search_term:
+                            search_res = search_web(search_term)
+                            actions_executed.append(search_res)
+                            reply_text = f"Opened {primary_target} and searched for {search_term}."
+                    elif secondary_action and (secondary_action.startswith("send ") or secondary_action.startswith("email ") or secondary_action.startswith("mail ")):
+                        email_body = None
+                        recipient = None
+                        
+                        send_match = re.search(r'^send\s+(.+?)\s+to\s+(\w+)', secondary_action, re.I)
+                        if send_match:
+                            email_body = send_match.group(1).strip()
+                            recipient = send_match.group(2).strip()
+                        else:
+                            saying_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)\s+saying\s+(.+)', secondary_action, re.I)
+                            if saying_match:
+                                recipient = saying_match.group(1).strip()
+                                email_body = saying_match.group(2).strip()
+                            else:
+                                fallback_match = re.search(r'^(?:email|mail)\s+(?:to\s+)?(\w+)(?:\s+(.+))?', secondary_action, re.I)
+                                if fallback_match:
+                                    recipient = fallback_match.group(1).strip()
+                                    email_body = fallback_match.group(2).strip() if fallback_match.group(2) else "Hello"
+
+                        if recipient and email_body:
+                            email_res = send_email(recipient, email_body)
+                            actions_executed.append(email_res)
+                            if email_res.get("status") == "success":
+                                reply_text = f"Opened {primary_target} and drafted email to {email_res.get('recipient')}."
+                            else:
+                                reply_text = f"Opened {primary_target}, but email draft failed: {email_res.get('message')}."
+                else:
+                    _pending_action = {"action": "launch", "args": {"target": primary_target}}
+                    needs_confirmation = not safe
+                    confirmation_reason = reason
+                    reply_text = f"Ready to open {primary_target}. Awaiting confirmation."
         elif q_lower.startswith("play ") or q_lower.startswith("bajao ") or "on youtube" in q_lower:
             intent = "youtube"
             if allow_actions:
@@ -329,6 +361,50 @@ async def process_turn(
                     reply_text = res.get("message", f"Reminder set: '{parsed_rem.get('text')}'.")
                 else:
                     reply_text = f"Failed to set reminder: {res.get('message')}"
+
+        # Display Brightness Control Intent
+        elif any(w in q_lower for w in ["brightness", "brighter", "dimmer", "dim screen", "bright screen"]):
+            intent = "system_brightness"
+            abs_match = re.search(r'\b(?:to|set\s+to|at|=)?\s*(\d{1,3})\s*%?', q_lower)
+            if ("set" in q_lower or "change" in q_lower or "put" in q_lower) and abs_match:
+                target_lvl = int(abs_match.group(1))
+                res = set_brightness(level=target_lvl)
+            elif any(w in q_lower for w in ["increase", "up", "raise", "brighter", "more"]):
+                delta = 10
+                delta_match = re.search(r'\b(?:by)?\s*(\d{1,3})\s*%?', q_lower)
+                if delta_match:
+                    delta = int(delta_match.group(1))
+                res = adjust_brightness(delta=delta)
+            elif any(w in q_lower for w in ["decrease", "down", "lower", "dim", "less", "reduce"]):
+                delta = -10
+                delta_match = re.search(r'\b(?:by)?\s*(\d{1,3})\s*%?', q_lower)
+                if delta_match:
+                    delta = -int(delta_match.group(1))
+                res = adjust_brightness(delta=delta)
+            elif abs_match:
+                target_lvl = int(abs_match.group(1))
+                res = set_brightness(level=target_lvl)
+            else:
+                res = adjust_brightness(delta=10)
+            actions_executed.append(res)
+            reply_text = res.get("message", "Brightness adjusted.")
+
+        # Open Windows Settings Intent
+        elif q_lower == "settings" or q_lower == "open settings" or (q_lower.startswith("open ") and "setting" in q_lower):
+            intent = "open_settings"
+            page_match = re.search(r'open\s+([a-zA-Z\s]+?)\s*settings?', q_lower)
+            page_name = page_match.group(1).strip() if page_match and page_match.group(1).strip() != "" else None
+            res = open_settings(page=page_name)
+            actions_executed.append(res)
+            reply_text = res.get("message", "Opened Windows Settings.")
+
+        # Wi-Fi State Toggle Intent
+        elif any(w in q_lower for w in ["wifi", "wi-fi", "wireless"]) and any(w in q_lower for w in ["turn on", "turn off", "enable", "disable", "switch on", "switch off", "activate", "deactivate"]):
+            intent = "system_wifi"
+            turn_on = any(w in q_lower for w in ["on", "enable", "activate", "switch on"])
+            res = set_wifi_state(enabled=turn_on)
+            actions_executed.append(res)
+            reply_text = res.get("message", f"Wi-Fi {'turned on' if turn_on else 'turned off'}.")
 
     # If already handled by deterministic tools
     if reply_text:
