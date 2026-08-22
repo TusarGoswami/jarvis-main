@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "jarvis.db")
 
@@ -55,6 +55,30 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+
+    # Phase 2: Per-User Google OAuth Tokens & Persistent CSRF State Registry
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_oauth_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE NOT NULL,
+        refresh_token_enc TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        google_email TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_oauth_user_id ON user_oauth_tokens(user_id)")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS oauth_states (
+        state TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        expires_at REAL NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
     con.commit()
     
     # Interview Mode Sessions (Phase 1, 2, 3 & Integrity Evaluation)
@@ -710,5 +734,171 @@ def delete_expired_sessions() -> int:
     except Exception as e:
         print(f"[DB] Error deleting expired sessions: {e}")
         return 0
+    finally:
+        con.close()
+
+
+# ==================== PER-USER GOOGLE OAUTH HELPERS ====================
+
+def save_user_oauth_token(
+    user_id: int,
+    refresh_token: str,
+    scopes: List[str],
+    google_email: Optional[str] = None
+) -> bool:
+    """
+    Encrypts and saves or updates a user's Google OAuth refresh token.
+    Uses Fernet encryption at rest.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        refresh_token_enc = encrypt_data(refresh_token)
+        scopes_json = json.dumps(scopes)
+
+        cursor.execute("""
+        INSERT INTO user_oauth_tokens (user_id, refresh_token_enc, scopes, google_email, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            refresh_token_enc = excluded.refresh_token_enc,
+            scopes = excluded.scopes,
+            google_email = COALESCE(excluded.google_email, user_oauth_tokens.google_email),
+            updated_at = CURRENT_TIMESTAMP
+        """, (user_id, refresh_token_enc, scopes_json, google_email))
+
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[DB] Error saving user OAuth token: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def get_user_oauth_token(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves and decrypts a user's Google OAuth refresh token and scopes.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT refresh_token_enc, scopes, google_email, updated_at FROM user_oauth_tokens WHERE user_id = ?",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        refresh_token = decrypt_data(row[0])
+        try:
+            scopes = json.loads(row[1]) if row[1] else []
+        except Exception:
+            scopes = []
+
+        return {
+            "user_id": user_id,
+            "refresh_token": refresh_token,
+            "scopes": scopes,
+            "google_email": row[2],
+            "updated_at": row[3]
+        }
+    except Exception as e:
+        print(f"[DB] Error fetching user OAuth token: {e}")
+        return None
+    finally:
+        con.close()
+
+
+def delete_user_oauth_token(user_id: int) -> bool:
+    """
+    Deletes a user's Google OAuth tokens (disconnect).
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute("DELETE FROM user_oauth_tokens WHERE user_id = ?", (user_id,))
+        affected = cursor.rowcount
+        con.commit()
+        return affected > 0
+    except Exception as e:
+        print(f"[DB] Error deleting user OAuth token: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def is_user_oauth_connected(user_id: int) -> Tuple[bool, Optional[str]]:
+    """
+    Checks if a user has connected their Google account.
+    Returns (True, google_email) or (False, None).
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute("SELECT google_email FROM user_oauth_tokens WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return True, row[0]
+        return False, None
+    except Exception as e:
+        print(f"[DB] Error checking user OAuth status: {e}")
+        return False, None
+    finally:
+        con.close()
+
+
+# ==================== OAUTH CSRF STATE REGISTRY ====================
+
+def save_oauth_state(state: str, user_id: int, expires_at: float) -> bool:
+    """
+    Persists a one-time CSRF OAuth state token bound to a specific user.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        # Clean up any expired states first
+        cursor.execute("DELETE FROM oauth_states WHERE expires_at <= ?", (time.time(),))
+        cursor.execute(
+            "INSERT INTO oauth_states (state, user_id, expires_at) VALUES (?, ?, ?)",
+            (state, user_id, expires_at)
+        )
+        con.commit()
+        return True
+    except Exception as e:
+        print(f"[DB] Error saving OAuth state: {e}")
+        return False
+    finally:
+        con.close()
+
+
+def consume_oauth_state(state: str) -> Optional[int]:
+    """
+    Validates and immediately deletes a one-time CSRF OAuth state token.
+    Returns user_id if valid and unexpired, None otherwise.
+    """
+    con = sqlite3.connect(DB_PATH, timeout=20.0)
+    try:
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT user_id, expires_at FROM oauth_states WHERE state = ?",
+            (state,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        user_id, expires_at = row
+        # Delete immediately (one-time consumption)
+        cursor.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+        con.commit()
+
+        if time.time() > expires_at:
+            return None
+
+        return user_id
+    except Exception as e:
+        print(f"[DB] Error consuming OAuth state: {e}")
+        return None
     finally:
         con.close()
