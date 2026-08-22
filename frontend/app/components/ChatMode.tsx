@@ -164,7 +164,7 @@ export const ChatMode: React.FC<ChatModeProps> = ({
           </div>
         ) : (
           messages.map((msg, msgIdx) => {
-            const messageKey = msg.id || `chat-msg-${msgIdx}-${msg.timestamp || Date.now()}`;
+            const messageKey = msg.id || `chat-msg-${msgIdx}-${msg.timestamp || 'msg'}`;
             return (
             <motion.div
               key={messageKey}

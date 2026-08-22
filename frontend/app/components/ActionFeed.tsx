@@ -30,7 +30,7 @@ export const ActionFeed: React.FC<ActionFeedProps> = ({
         </div>
       ) : (
         messages.map((msg, msgIdx) => {
-          const feedKey = msg.id || `feed-msg-${msgIdx}-${msg.timestamp || Date.now()}`;
+          const feedKey = msg.id || `feed-msg-${msgIdx}-${msg.timestamp || 'msg'}`;
           return (
           <div
             key={feedKey}
