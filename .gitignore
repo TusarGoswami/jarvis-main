@@ -35,6 +35,11 @@ backend/workspace/
 backend/.env
 .key
 .vault
+credentials.json
+backend/credentials.json
+client_secret*.json
+backend/client_secret*.json
+gmail_token.json
 
 # Frontend dependencies & builds
 frontend/node_modules/

@@ -25,6 +25,8 @@ dependencies = [
     "requests>=2.32.0",
     "pywin32>=306",
     "groq>=1.6.0",
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.2.0",
 ]
 
 [tool.pytest.ini_options]
