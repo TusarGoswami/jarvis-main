@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp, Square } from "lucide-react";
+import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp, Square, Check } from "lucide-react";
 import { useAssistantState } from "../hooks/useAssistantState";
 import { STATE_CONFIG } from "./types";
 
@@ -11,6 +11,7 @@ interface VoiceInputBarProps {
   onToggleListening: () => void;
   isLoading: boolean;
   onStopTalking?: () => void;
+  isTalkingStopped?: boolean;
   maxTokens?: number;
   onMaxTokensChange?: (tokens: number) => void;
 }
@@ -19,6 +20,7 @@ const PRESETS = [
   { label: "🔍 Inspect Screen", query: "Analyze what is currently open on my screen", accent: "cyan" },
   { label: "⚡ System Stats", query: "Check CPU and memory usage", accent: "default" },
   { label: "📝 Launch Notepad", query: "Open Notepad and write project notes", accent: "default" },
+  { label: "📧 Send Email", query: "Send an email to team@company.com saying project updates are ready", accent: "cyan" },
   { label: "🎵 YouTube Music", query: "Play synthwave chill music on YouTube", accent: "default" },
   { label: "🇮🇳 हिन्दी मोड़", query: "हिंदी में बताओ आज का मौसम और समय", accent: "amber" },
   { label: "🇧🇩 বাংলা মোড", query: "আমাকে বাংলায় একটি মজার গল্প শোনাও", accent: "purple" },
@@ -26,19 +28,13 @@ const PRESETS = [
 
 /**
  * VoiceInputBar — Unified pill-shaped input bar at bottom center.
- *
- * Carries forward from MultimodalBar:
- *  - includeScreen toggle with context-aware placeholder
- *  - Language selector (auto/en/hi/bn)
- *  - Preset quick commands
- *  - Form submit guard (empty check + loading)
- *  - Token limit control & instant Stop Talking interrupt
  */
 export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
   onSendQuery,
   onToggleListening,
   isLoading,
   onStopTalking,
+  isTalkingStopped,
   maxTokens,
   onMaxTokensChange,
 }) => {
@@ -211,7 +207,7 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
               ? "Listening..."
               : includeScreen
               ? "Ask about your screen..."
-              : "Ask Vocalis AI anything..."
+              : "Ask Vocalis AI or command tasks..."
           }
           disabled={isListening}
           className="flex-1 bg-transparent px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none min-w-0"
@@ -237,7 +233,7 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Stop Talking Button when speaking */}
+        {/* Stop Talking Button / Talking Stopped feedback */}
         <AnimatePresence>
           {state === "speaking" && onStopTalking && (
             <motion.button
@@ -246,12 +242,24 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
-              className="p-2.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold hover:brightness-110 transition shadow-[0_0_15px_rgba(239,68,68,0.8)] flex items-center gap-1.5 flex-shrink-0 text-xs font-mono"
+              className="p-2.5 px-3 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold hover:brightness-110 transition shadow-[0_0_15px_rgba(239,68,68,0.8)] flex items-center gap-1.5 flex-shrink-0 text-xs font-mono cursor-pointer"
               title="Stop Talking"
             >
               <Square className="w-3.5 h-3.5 fill-white" />
               <span>Stop</span>
             </motion.button>
+          )}
+
+          {isTalkingStopped && (
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="p-2 px-2.5 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 font-bold flex items-center gap-1 flex-shrink-0 text-xs font-mono shadow-[0_0_12px_rgba(16,185,129,0.5)]"
+            >
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Stopped</span>
+            </motion.div>
           )}
         </AnimatePresence>
 
