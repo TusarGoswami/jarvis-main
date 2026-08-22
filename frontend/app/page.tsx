@@ -15,7 +15,6 @@ import { TelemetryStrip, AppMode } from "./components/TelemetryStrip";
 import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
 import { InterviewProtocol } from "./components/interview/InterviewProtocol";
-import { ActionCenter } from "./components/ActionCenter";
 import { ChatMode } from "./components/ChatMode";
 
 // Hooks & Types
@@ -428,26 +427,28 @@ export default function VocalisHome() {
                 onMaxTokensChange={setMaxTokens}
                 isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
                 onClearChat={() => setMessages([])}
+                appMode={appMode}
+                onModeChange={setAppMode}
               />
             </motion.div>
           ) : (
-            /* ─── ACTION MODE (Autonomous Task Execution, Tool Trays & Avatar) ─── */
+            /* ─── ACTION MODE (Clean Autonomous Avatar Core & Voice Input) ─── */
             <motion.div
               key="action-mode"
               initial={{ opacity: 0, y: -15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 15 }}
               transition={{ duration: 0.25 }}
-              className="flex-1 flex flex-col justify-between overflow-y-auto"
+              className="flex-1 flex flex-col justify-between"
             >
               {/* Central Avatar Stage (Dominant Central Viewport) */}
-              <div className="relative z-10 flex flex-col items-center justify-center pt-14 pb-4 px-4">
+              <div className="relative z-10 flex-1 flex flex-col items-center justify-center pt-16 pb-28 px-4">
                 {/* Avatar + Ring container */}
                 <motion.div
                   className="relative flex items-center justify-center"
                   style={{
-                    width: "clamp(260px, 32vw, 420px)",
-                    height: "clamp(260px, 32vw, 420px)",
+                    width: "clamp(320px, 42vw, 500px)",
+                    height: "clamp(320px, 42vw, 500px)",
                   }}
                   animate={{
                     scale: isActive ? 1.03 : 1,
@@ -465,13 +466,13 @@ export default function VocalisHome() {
 
                 {/* Ambient state text */}
                 <motion.p
-                  className="mt-4 text-gray-400 text-sm font-mono tracking-wide text-center"
+                  className="mt-6 text-gray-400 text-sm font-mono tracking-wide text-center"
                   animate={{
                     opacity: isActive ? 0.4 : 0.8,
                   }}
                   transition={{ duration: 0.5 }}
                 >
-                  {effectiveState === "idle" && "Speak, type or assign an autonomous task below..."}
+                  {effectiveState === "idle" && "Speak or type actions (e.g. send email, calendar, launch app)..."}
                   {effectiveState === "listening" && "Listening to your voice..."}
                   {effectiveState === "thinking" && "Reasoning & executing plan..."}
                   {effectiveState === "speaking" && "Responding..."}
@@ -486,7 +487,7 @@ export default function VocalisHome() {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.8, y: 10 }}
                       onClick={stopCurrentAudio}
-                      className="mt-3 px-6 py-2 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-purple-600 text-white font-mono font-bold text-xs shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:scale-105 transition-all flex items-center gap-2 border border-red-400/50 cursor-pointer z-30 tracking-wider"
+                      className="mt-4 px-6 py-2 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-purple-600 text-white font-mono font-bold text-xs shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:scale-105 transition-all flex items-center gap-2 border border-red-400/50 cursor-pointer z-30 tracking-wider"
                       title="Stop audio playback"
                     >
                       <Square className="w-4 h-4 fill-white" />
@@ -499,7 +500,7 @@ export default function VocalisHome() {
                       initial={{ opacity: 0, scale: 0.8, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                      className="mt-3 px-6 py-2 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-mono font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.6)] flex items-center gap-2 z-30 tracking-wider"
+                      className="mt-4 px-6 py-2 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-mono font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.6)] flex items-center gap-2 z-30 tracking-wider"
                     >
                       <Check className="w-4 h-4 text-emerald-400" />
                       <span>TALKING STOPPED</span>
@@ -507,9 +508,6 @@ export default function VocalisHome() {
                   )}
                 </AnimatePresence>
               </div>
-
-              {/* Action Center (Task Assignment Cards: Email, App Launch, Web Intel, Terminal) */}
-              <ActionCenter onExecuteCommand={(cmd) => handleSendQuery(cmd, false, "auto")} />
 
               {/* Voice input bar (fixed bottom center) */}
               <VoiceInputBar
@@ -520,6 +518,8 @@ export default function VocalisHome() {
                 isTalkingStopped={isTalkingStopped}
                 maxTokens={maxTokens}
                 onMaxTokensChange={setMaxTokens}
+                appMode={appMode}
+                onModeChange={setAppMode}
               />
 
               {/* Activity & Workspace drawer (slide-in from right) */}

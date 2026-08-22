@@ -2,9 +2,10 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp, Square, Check } from "lucide-react";
+import { Mic, MicOff, Send, ScreenShare, Languages, ChevronUp, Square, Check, Zap, MessageSquare } from "lucide-react";
 import { useAssistantState } from "../hooks/useAssistantState";
 import { STATE_CONFIG } from "./types";
+import type { AppMode } from "./TelemetryStrip";
 
 interface VoiceInputBarProps {
   onSendQuery: (query: string, includeScreen: boolean, lang: string) => void;
@@ -14,6 +15,8 @@ interface VoiceInputBarProps {
   isTalkingStopped?: boolean;
   maxTokens?: number;
   onMaxTokensChange?: (tokens: number) => void;
+  appMode?: AppMode;
+  onModeChange?: (mode: AppMode) => void;
 }
 
 const PRESETS = [
@@ -37,6 +40,8 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
   isTalkingStopped,
   maxTokens,
   onMaxTokensChange,
+  appMode,
+  onModeChange,
 }) => {
   const { state } = useAssistantState();
   const [text, setText] = useState("");
@@ -97,6 +102,8 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
 
   const cfg = STATE_CONFIG[state];
 
+  const isChat = appMode === "chat";
+
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 w-full max-w-2xl px-4">
       {/* Presets dropdown */}
@@ -140,6 +147,32 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
         }}
         transition={{ type: "spring", stiffness: 100, damping: 15 }}
       >
+        {/* Dedicated Action Mode / Chat Mode Toggle Button */}
+        {onModeChange && (
+          <button
+            type="button"
+            onClick={() => onModeChange(isChat ? "action" : "chat")}
+            className={`p-2 px-2.5 rounded-xl font-mono text-xs font-bold transition-all flex items-center gap-1.5 flex-shrink-0 cursor-pointer ${
+              isChat
+                ? "bg-purple-950/80 border border-purple-500/50 text-purple-300 hover:bg-purple-900/80 shadow-[0_0_12px_rgba(168,85,247,0.35)]"
+                : "bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 hover:bg-cyan-900/80 shadow-[0_0_12px_rgba(0,240,255,0.35)]"
+            }`}
+            title={isChat ? "Currently in Chat Mode. Click to switch to Action Mode" : "Currently in Action Mode. Click to switch to Chat Mode"}
+          >
+            {isChat ? (
+              <>
+                <MessageSquare className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-[11px] tracking-wider hidden sm:inline">CHAT</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[11px] tracking-wider hidden sm:inline">ACTION</span>
+              </>
+            )}
+          </button>
+        )}
+
         {/* Presets toggle */}
         <button
           type="button"
@@ -207,7 +240,9 @@ export const VoiceInputBar: React.FC<VoiceInputBarProps> = ({
               ? "Listening..."
               : includeScreen
               ? "Ask about your screen..."
-              : "Ask Vocalis AI or command tasks..."
+              : isChat
+              ? "Chat with Vocalis AI..."
+              : "Command actions (e.g. send email, open app, calendar, search)..."
           }
           disabled={isListening}
           className="flex-1 bg-transparent px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none min-w-0"

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { MessageItem } from "./types";
 import { VoiceInputBar } from "./VoiceInputBar";
+import type { AppMode } from "./TelemetryStrip";
 
 interface ChatModeProps {
   messages: MessageItem[];
@@ -33,6 +34,8 @@ interface ChatModeProps {
   onMaxTokensChange: (tokens: number) => void;
   isLoading: boolean;
   onClearChat?: () => void;
+  appMode?: AppMode;
+  onModeChange?: (mode: AppMode) => void;
 }
 
 const CHAT_PROMPTS = [
@@ -56,6 +59,8 @@ export const ChatMode: React.FC<ChatModeProps> = ({
   onMaxTokensChange,
   isLoading,
   onClearChat,
+  appMode,
+  onModeChange,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeStepTab, setActiveStepTab] = useState<Record<string, boolean>>({});
@@ -356,6 +361,8 @@ export const ChatMode: React.FC<ChatModeProps> = ({
           isTalkingStopped={isTalkingStopped}
           maxTokens={maxTokens}
           onMaxTokensChange={onMaxTokensChange}
+          appMode={appMode}
+          onModeChange={onModeChange}
         />
       </div>
     </div>
