@@ -15,10 +15,13 @@ import {
   Bot,
   UserCheck,
   Square,
+  Zap,
+  MessageSquare,
+  Check,
 } from "lucide-react";
 import type { SystemStats } from "./types";
 
-export type AppMode = "jarvis" | "interview";
+export type AppMode = "action" | "chat" | "interview" | "jarvis";
 
 interface TelemetryStripProps {
   stats: SystemStats | null;
@@ -29,6 +32,7 @@ interface TelemetryStripProps {
   appMode: AppMode;
   onModeChange: (mode: AppMode) => void;
   isSpeaking?: boolean;
+  isTalkingStopped?: boolean;
   onStopTalking?: () => void;
   maxTokens?: number;
   onMaxTokensChange?: (tokens: number) => void;
@@ -36,7 +40,7 @@ interface TelemetryStripProps {
 
 /**
  * TelemetryStrip — Collapsible thin top bar for system stats with mode switching.
- * Includes [JARVIS] and [INTERVIEW] protocol mode toggles.
+ * Supports [ACTION], [CHAT], and [INTERVIEW] protocol mode toggles.
  */
 export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   stats,
@@ -47,6 +51,7 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
   appMode,
   onModeChange,
   isSpeaking,
+  isTalkingStopped,
   onStopTalking,
   maxTokens,
   onMaxTokensChange,
@@ -64,6 +69,10 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
 
   // CPU color threshold logic
   const cpuColor = cpu > 80 ? "text-red-400" : cpu > 50 ? "text-amber-400" : "text-cyan-300";
+
+  const isActionActive = appMode === "action" || appMode === "jarvis";
+  const isChatActive = appMode === "chat";
+  const isInterviewActive = appMode === "interview";
 
   return (
     <motion.div
@@ -87,27 +96,45 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
             </span>
           </div>
 
-          {/* Mode Switcher Buttons */}
+          {/* 3-Mode Switcher Buttons */}
           <div className="flex items-center bg-slate-950 p-0.5 rounded-xl border border-cyan-500/30">
+            {/* ACTION MODE */}
             <button
-              onClick={() => onModeChange("jarvis")}
+              onClick={() => onModeChange("action")}
               className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
-                appMode === "jarvis"
+                isActionActive
                   ? "bg-cyan-500/20 border border-cyan-400/60 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.35)]"
                   : "text-gray-400 hover:text-gray-200"
               }`}
+              title="Action Mode: Assign and execute autonomous tasks & tools"
             >
-              <Bot className="w-3 h-3" />
-              <span>JARVIS</span>
+              <Zap className="w-3 h-3 text-cyan-400" />
+              <span>ACTION</span>
             </button>
 
+            {/* CHAT MODE */}
+            <button
+              onClick={() => onModeChange("chat")}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
+                isChatActive
+                  ? "bg-purple-500/20 border border-purple-400/60 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.35)]"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+              title="Chat Mode: Voice & text conversational interface"
+            >
+              <MessageSquare className="w-3 h-3 text-purple-400" />
+              <span>CHAT</span>
+            </button>
+
+            {/* INTERVIEW MODE */}
             <button
               onClick={() => onModeChange("interview")}
               className={`px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-wider transition-all flex items-center gap-1.5 ${
-                appMode === "interview"
+                isInterviewActive
                   ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/60 text-cyan-300 shadow-[0_0_12px_rgba(0,240,255,0.35)]"
                   : "text-gray-400 hover:text-gray-200"
               }`}
+              title="Interview Mode: Technical mock interview protocol"
             >
               <UserCheck className="w-3 h-3 text-cyan-400" />
               <span>INTERVIEW</span>
@@ -143,12 +170,22 @@ export const TelemetryStrip: React.FC<TelemetryStripProps> = ({
           {isSpeaking && onStopTalking && (
             <button
               onClick={onStopTalking}
-              className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-600 text-white font-bold animate-pulse hover:bg-red-500 transition text-[10px] shadow-[0_0_10px_rgba(239,68,68,0.7)]"
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-600 text-white font-bold animate-pulse hover:bg-red-500 transition text-[10px] shadow-[0_0_10px_rgba(239,68,68,0.7)] cursor-pointer"
               title="Stop audio playback"
             >
               <Square className="w-3 h-3 fill-white" />
               <span>STOP TALKING</span>
             </button>
+          )}
+
+          {/* Talking Stopped Feedback */}
+          {isTalkingStopped && (
+            <div
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 font-bold text-[10px] shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+            >
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span>STOPPED</span>
+            </div>
           )}
 
           {/* Token Limit Indicator */}

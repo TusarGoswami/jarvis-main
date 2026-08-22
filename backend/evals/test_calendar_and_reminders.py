@@ -290,9 +290,10 @@ def test_calendar_event_auto_creates_linked_reminder(mock_get_service):
     """
     mock_service = MagicMock()
     mock_get_service.return_value = mock_service
+    evt_id = f"evt_auto_link_{int(time.time()*1000)}"
     mock_service.events().insert().execute.return_value = {
-        "id": "evt_auto_link_101",
-        "htmlLink": "https://calendar.google.com/event?eid=101"
+        "id": evt_id,
+        "htmlLink": f"https://calendar.google.com/event?eid={evt_id}"
     }
 
     start_time = (datetime.now() + timedelta(hours=3)).replace(microsecond=0)
@@ -303,12 +304,12 @@ def test_calendar_event_auto_creates_linked_reminder(mock_get_service):
     )
 
     assert res["status"] == "success"
-    assert res["event_id"] == "evt_auto_link_101"
+    assert res["event_id"] == evt_id
     assert res["linked_voice_alert"] is not None
 
     # Verify linked reminder exists in database
     linked_rem = get_reminders(status_filter="pending")
-    matching = [r for r in linked_rem if r.get("linked_event_id") == "evt_auto_link_101"]
+    matching = [r for r in linked_rem if r.get("linked_event_id") == evt_id]
     assert len(matching) == 1
     assert "Sprint Retrospective" in matching[0]["text"]
     assert "starts in 10 minutes" in matching[0]["text"]
@@ -321,9 +322,10 @@ def test_calendar_event_deletion_cascade_cancels_reminder(mock_get_service):
     """
     mock_service = MagicMock()
     mock_get_service.return_value = mock_service
+    evt_id = f"evt_to_cascade_{int(time.time()*1000)}"
     mock_service.events().insert().execute.return_value = {
-        "id": "evt_to_cascade_202",
-        "htmlLink": "https://calendar.google.com/event?eid=202"
+        "id": evt_id,
+        "htmlLink": f"https://calendar.google.com/event?eid={evt_id}"
     }
     mock_service.events().delete().execute.return_value = {}
 

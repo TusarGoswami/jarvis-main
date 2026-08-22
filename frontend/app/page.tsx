@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Square } from "lucide-react";
+import { Square, Check } from "lucide-react";
 
 // Components
 import { ParticleBackground } from "./components/ParticleBackground";
@@ -15,14 +15,15 @@ import { TelemetryStrip, AppMode } from "./components/TelemetryStrip";
 import { DevStateToggle } from "./components/DevStateToggle";
 import { EvalBenchmarkModal } from "./components/EvalBenchmarkModal";
 import { InterviewProtocol } from "./components/interview/InterviewProtocol";
+import { ChatMode } from "./components/ChatMode";
 
 // Hooks & Types
 import { AssistantStateProvider } from "./hooks/useAssistantState";
 import type { AssistantState, MessageItem, SystemStats } from "./components/types";
 
 export default function VocalisHome() {
-  // ─── Mode State (JARVIS vs INTERVIEW) ───
-  const [appMode, setAppMode] = useState<AppMode>("jarvis");
+  // ─── Mode State (ACTION vs CHAT vs INTERVIEW) ───
+  const [appMode, setAppMode] = useState<AppMode>("action");
 
   // ─── Core State ───
   const [rawState, setRawState] = useState<AssistantState>("idle");
@@ -32,6 +33,7 @@ export default function VocalisHome() {
   const [currentAgentSteps, setCurrentAgentSteps] = useState<any[]>([]);
   const [audioMuted, setAudioMuted] = useState(false);
   const [maxTokens, setMaxTokens] = useState<number>(150);
+  const [isTalkingStopped, setIsTalkingStopped] = useState(false);
   const [isEvalOpen, setIsEvalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -61,6 +63,11 @@ export default function VocalisHome() {
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+    setRawState("idle");
+    setIsTalkingStopped(true);
+    setTimeout(() => {
+      setIsTalkingStopped(false);
+    }, 1800);
   }, []);
 
   // ─── Context value (memoized for performance) ───
@@ -366,7 +373,7 @@ export default function VocalisHome() {
         {/* Animated particle background */}
         <ParticleBackground />
 
-        {/* Telemetry strip (thin top bar with JARVIS / INTERVIEW mode switch) */}
+        {/* Telemetry strip (thin top bar with ACTION / CHAT / INTERVIEW mode switch) */}
         <TelemetryStrip
           stats={stats}
           isConnected={isWsConnected}
@@ -376,6 +383,7 @@ export default function VocalisHome() {
           appMode={appMode}
           onModeChange={setAppMode}
           isSpeaking={effectiveState === "speaking"}
+          isTalkingStopped={isTalkingStopped}
           onStopTalking={stopCurrentAudio}
           maxTokens={maxTokens}
           onMaxTokensChange={setMaxTokens}
@@ -384,7 +392,7 @@ export default function VocalisHome() {
         {/* ─── Mode Switching Content ─── */}
         <AnimatePresence mode="wait">
           {appMode === "interview" ? (
-            /* ─── INTERVIEW MODE (Phase 1 Protocol Setup) ─── */
+            /* ─── INTERVIEW MODE (Technical Interview Protocol) ─── */
             <motion.div
               key="interview-mode"
               initial={{ opacity: 0, y: 15 }}
@@ -395,10 +403,38 @@ export default function VocalisHome() {
             >
               <InterviewProtocol />
             </motion.div>
-          ) : (
-            /* ─── JARVIS MODE (Original Autonomous Multimodal Assistant) ─── */
+          ) : appMode === "chat" ? (
+            /* ─── CHAT MODE (Interactive Voice & Text Conversation) ─── */
             <motion.div
-              key="jarvis-mode"
+              key="chat-mode"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col"
+            >
+              <ChatMode
+                messages={messages}
+                onSendQuery={handleSendQuery}
+                onToggleListening={toggleListening}
+                onConfirmAction={handleConfirmAction}
+                onCancelAction={handleCancelAction}
+                onPlayAudio={handlePlayAudio}
+                onStopTalking={stopCurrentAudio}
+                isSpeaking={effectiveState === "speaking"}
+                isTalkingStopped={isTalkingStopped}
+                maxTokens={maxTokens}
+                onMaxTokensChange={setMaxTokens}
+                isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
+                onClearChat={() => setMessages([])}
+                appMode={appMode}
+                onModeChange={setAppMode}
+              />
+            </motion.div>
+          ) : (
+            /* ─── ACTION MODE (Clean Autonomous Avatar Core & Voice Input) ─── */
+            <motion.div
+              key="action-mode"
               initial={{ opacity: 0, y: -15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 15 }}
@@ -436,14 +472,14 @@ export default function VocalisHome() {
                   }}
                   transition={{ duration: 0.5 }}
                 >
-                  {effectiveState === "idle" && "Speak or type to command Vocalis AI..."}
+                  {effectiveState === "idle" && "Speak or type actions (e.g. send email, calendar, launch app)..."}
                   {effectiveState === "listening" && "Listening to your voice..."}
                   {effectiveState === "thinking" && "Reasoning & executing plan..."}
                   {effectiveState === "speaking" && "Responding..."}
                   {effectiveState === "tool_use" && "Autonomous tool execution active..."}
                 </motion.p>
 
-                {/* Prominent floating Stop Talking Button when speaking */}
+                {/* Stop Talking Button / Talking Stopped Feedback when speaking */}
                 <AnimatePresence>
                   {effectiveState === "speaking" && (
                     <motion.button
@@ -451,12 +487,24 @@ export default function VocalisHome() {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.8, y: 10 }}
                       onClick={stopCurrentAudio}
-                      className="mt-4 px-6 py-2.5 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-purple-600 text-white font-mono font-bold text-xs shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:scale-105 transition-all flex items-center gap-2 border border-red-400/50 cursor-pointer z-30 tracking-wider"
+                      className="mt-4 px-6 py-2 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-purple-600 text-white font-mono font-bold text-xs shadow-[0_0_25px_rgba(239,68,68,0.7)] hover:scale-105 transition-all flex items-center gap-2 border border-red-400/50 cursor-pointer z-30 tracking-wider"
                       title="Stop audio playback"
                     >
                       <Square className="w-4 h-4 fill-white" />
                       <span>STOP TALKING</span>
                     </motion.button>
+                  )}
+
+                  {isTalkingStopped && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                      className="mt-4 px-6 py-2 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 font-mono font-bold text-xs shadow-[0_0_20px_rgba(16,185,129,0.6)] flex items-center gap-2 z-30 tracking-wider"
+                    >
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span>TALKING STOPPED</span>
+                    </motion.div>
                   )}
                 </AnimatePresence>
               </div>
@@ -467,8 +515,11 @@ export default function VocalisHome() {
                 onToggleListening={toggleListening}
                 isLoading={effectiveState === "thinking" || effectiveState === "tool_use"}
                 onStopTalking={stopCurrentAudio}
+                isTalkingStopped={isTalkingStopped}
                 maxTokens={maxTokens}
                 onMaxTokensChange={setMaxTokens}
+                appMode={appMode}
+                onModeChange={setAppMode}
               />
 
               {/* Activity & Workspace drawer (slide-in from right) */}
